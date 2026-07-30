@@ -1,0 +1,42 @@
+Indirect Jumps in /home/isec/Documents/pin-external-3.31-98869-gfa6f126a8-gcc-linux/test/testnewO2:
+Image Base Address: 0x5572f5cb0000
+Image High Address: 0x5572f5cb21a7
+.text Section Base: 0x5572f5cb10d0
+.text Section High: 0x5572f5cb145d
+-----------------------------------
+Address: 0x5572f5cb1158 | Routine: .text | Instruction: ret  | Executed: 1 times
+ | Targets: 0x5572f5cb11cc 
+Address: 0x5572f5cb1431 | Routine: .text | Instruction: jmp rax | Executed: 2 times
+ | Targets: 0x5572f5cb12d0 0x5572f5cb11f0 
+Indirect Jumps in /home/isec/Documents/pin-external-3.31-98869-gfa6f126a8-gcc-linux/test/jumptable:
+Image Base Address: 0x555e270cf000
+Image High Address: 0x555e270d12ab
+.text Section Base: 0x555e270d00f0
+.text Section High: 0x555e270d066c
+-----------------------------------
+Address: 0x555e270d0178 | Routine: .text | Instruction: ret  | Executed: 1 times
+ | Targets: 0x555e270d01ec 
+Address: 0x555e270d0376 | Routine: .text | Instruction: jmp rax | Executed: 1 times
+ | Targets: 0x555e270d0464 
+Indirect Jumps in /home/isec/Documents/pin-external-3.31-98869-gfa6f126a8-gcc-linux/test/jump:
+Image Base Address: 0x55d96316c000
+Image High Address: 0x55d96316e1b3
+.text Section Base: 0x55d96316d070
+.text Section High: 0x55d96316d2bc
+-----------------------------------
+Address: 0x55d96316d0f8 | Routine: .text | Instruction: ret  | Executed: 1 times
+ | Targets: 0x55d96316d16c 
+Indirect Jumps in /home/isec/Documents/pin-external-3.31-98869-gfa6f126a8-gcc-linux/test/switch:
+Image Base Address: 0x55be953a1000
+Image High Address: 0x55be953a33e3
+.text Section Base: 0x55be953a20f0
+.text Section High: 0x55be953a2b35
+-----------------------------------
+Address: 0x55be953a25e0 | Routine: .text | Instruction: jmp rax | Executed: 1 times
+ | Targets: 0x55be953a2300 
+Address: 0x55be953a243d | Routine: .text | Instruction: jmp rcx | Executed: 1 times
+ | Targets: 0x55be953a243f 
+Address: 0x55be953a2178 | Routine: .text | Instruction: ret  | Executed: 1 times
+ | Targets: 0x55be953a21ec 
+Address: 0x55be953a2411 | Routine: .text | Instruction: jmp rax | Executed: 2 times
+ | Targets: 0x55be953a2300 0x55be953a2210 

@@ -1,0 +1,4 @@
+Tail Call: Source: 0x55a7530cf148 -> Target: 0x55a7530cf1bc
+  Function Name: .text
+  Segment Base: 0x55a7530cf0c0  Image: /home/isec/Documents/pin-external-3.31-98869-gfa6f126a8-gcc-linux/test/testO2 (Base: 0x55a7530ce000, End: 0x55a7530d018f)
+

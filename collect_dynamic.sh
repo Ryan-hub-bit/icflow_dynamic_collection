@@ -1,0 +1,236 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+
+usage() {
+    cat <<'EOF'
+Usage: collect_dynamic.sh URL_LIST [OUTPUT_DIRECTORY]
+
+URL_LIST contains one Arch packaging or AUR Git URL per line. Blank lines and
+lines beginning with # are ignored.
+
+Required environment variables:
+  LLVM_BUILD   Build directory of Ryan-hub-bit/llvm-project
+  PIN_ROOT     Root directory of the Intel Pin/MyPinTool repository
+
+Optional environment variables:
+  PINTOOL       MyPinTool .so path
+  WORK_ROOT     Package checkout directory (default: ./work)
+  MAKEPKG_CONF  makepkg config (default: repository makepkg.conf)
+  BUILD_TIMEOUT First build timeout in seconds (default: 2000)
+  TEST_TIMEOUT  Instrumented test timeout in seconds (default: 1800)
+EOF
+}
+
+if [[ ${1:-} == "-h" || ${1:-} == "--help" ]]; then
+    usage
+    exit 0
+fi
+
+if [[ $# -lt 1 || $# -gt 2 ]]; then
+    usage >&2
+    exit 2
+fi
+
+if [[ ! -f /etc/arch-release ]]; then
+    echo "Dynamic collection must run on an Arch Linux machine." >&2
+    exit 1
+fi
+
+if (( EUID == 0 )); then
+    echo "Do not run this script as root; makepkg refuses to run as root." >&2
+    exit 1
+fi
+
+: "${LLVM_BUILD:?LLVM_BUILD must point to the custom LLVM build directory}"
+: "${PIN_ROOT:?PIN_ROOT must point to the Intel Pin kit root}"
+
+for command in file find git makepkg realpath timeout; do
+    if ! command -v "$command" >/dev/null 2>&1; then
+        echo "Required command not found: $command" >&2
+        exit 1
+    fi
+done
+
+URL_LIST=$(realpath "$1")
+OUTPUT_ROOT=${2:-"$PWD/output"}
+mkdir -p "$OUTPUT_ROOT"
+OUTPUT_ROOT=$(realpath "$OUTPUT_ROOT")
+
+WORK_ROOT=${WORK_ROOT:-"$PWD/work"}
+mkdir -p "$WORK_ROOT"
+WORK_ROOT=$(realpath "$WORK_ROOT")
+
+LLVM_BUILD=$(realpath "$LLVM_BUILD")
+PIN_ROOT=$(realpath "$PIN_ROOT")
+PINTOOL=${PINTOOL:-"$PIN_ROOT/source/tools/MyPinTool/obj-intel64/MyPinTool.so"}
+PINTOOL=$(realpath "$PINTOOL")
+MAKEPKG_CONF=${MAKEPKG_CONF:-"$SCRIPT_DIR/makepkg.conf"}
+MAKEPKG_CONF=$(realpath "$MAKEPKG_CONF")
+BUILD_TIMEOUT=${BUILD_TIMEOUT:-2000}
+TEST_TIMEOUT=${TEST_TIMEOUT:-1800}
+
+if [[ ! $BUILD_TIMEOUT =~ ^[1-9][0-9]*$ || ! $TEST_TIMEOUT =~ ^[1-9][0-9]*$ ]]; then
+    echo "BUILD_TIMEOUT and TEST_TIMEOUT must be positive integers." >&2
+    exit 1
+fi
+
+if [[ ! -x "$LLVM_BUILD/bin/clang" || ! -x "$LLVM_BUILD/bin/clang++" ]]; then
+    echo "Custom clang/clang++ not found under: $LLVM_BUILD/bin" >&2
+    exit 1
+fi
+
+if [[ ! -x "$PIN_ROOT/pin" ]]; then
+    echo "Pin launcher is not executable: $PIN_ROOT/pin" >&2
+    exit 1
+fi
+
+if [[ ! -f "$PINTOOL" ]]; then
+    echo "MyPinTool shared object does not exist: $PINTOOL" >&2
+    exit 1
+fi
+
+export PATH="$LLVM_BUILD/bin:$PATH"
+export CC="$LLVM_BUILD/bin/clang"
+export CXX="$LLVM_BUILD/bin/clang++"
+
+PROCESSED_FILE="$OUTPUT_ROOT/processed_urls.txt"
+FAILURE_FILE="$OUTPUT_ROOT/failed_urls.txt"
+SUMMARY_LOG="$OUTPUT_ROOT/collection.log"
+touch "$PROCESSED_FILE" "$FAILURE_FILE" "$SUMMARY_LOG"
+
+current_source_dir=""
+
+restore_current_package() {
+    if [[ -n $current_source_dir && -d $current_source_dir ]]; then
+        "$SCRIPT_DIR/restore_wrapped_elfs.sh" "$current_source_dir" || true
+    fi
+    current_source_dir=""
+}
+
+trap restore_current_package EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+collect_artifacts() {
+    local repository_dir=$1
+    local package_output=$2
+    local result relative destination binary
+
+    mkdir -p "$package_output/artifacts"
+
+    while IFS= read -r -d '' result; do
+        relative=${result#"$repository_dir"/}
+        destination="$package_output/artifacts/$relative"
+        mkdir -p "$(dirname "$destination")"
+        cp -- "$result" "$destination"
+
+        binary=${result%_icall.json}
+        binary=${binary%_ijump.json}
+        if [[ -f $binary ]]; then
+            relative=${binary#"$repository_dir"/}
+            destination="$package_output/artifacts/$relative"
+            mkdir -p "$(dirname "$destination")"
+            cp -- "$binary" "$destination"
+        fi
+    done < <(find "$repository_dir/src" -type f \( -name '*_icall.json' -o -name '*_ijump.json' \) -size +2c -print0 2>/dev/null)
+}
+
+process_package() {
+    local url=$1
+    local package_name repository_dir source_dir package_output execution_log
+
+    package_name=$(basename "$url" .git)
+    repository_dir="$WORK_ROOT/$package_name"
+    source_dir="$repository_dir/src"
+    package_output="$OUTPUT_ROOT/$package_name"
+    execution_log="$package_output/wrapped-executions.tsv"
+    mkdir -p "$package_output"
+
+    echo "[$(date --iso-8601=seconds)] START $url" | tee -a "$SUMMARY_LOG"
+
+    if [[ ! -d "$repository_dir/.git" ]]; then
+        if ! git clone --depth 1 "$url" "$repository_dir" 2>&1 | tee -a "$package_output/build.log"; then
+            echo "Clone failed: $url" >&2
+            return 1
+        fi
+    fi
+
+    if [[ ! -f "$repository_dir/PKGBUILD" ]]; then
+        echo "PKGBUILD not found: $url" | tee -a "$package_output/build.log" >&2
+        return 1
+    fi
+
+    if ! (
+        cd "$repository_dir"
+        timeout "$BUILD_TIMEOUT" makepkg \
+            --config "$MAKEPKG_CONF" \
+            --syncdeps --noconfirm --needed --skippgpcheck --nocheck
+    ) 2>&1 | tee -a "$package_output/build.log"; then
+        echo "Initial build failed: $url" >&2
+        return 1
+    fi
+
+    if [[ ! -d "$source_dir" ]]; then
+        echo "makepkg did not create a src directory: $url" >&2
+        return 1
+    fi
+
+    : > "$execution_log"
+    current_source_dir=$source_dir
+
+    if ! PIN_ROOT="$PIN_ROOT" PINTOOL="$PINTOOL" WRAP_LOG="$execution_log" \
+        "$SCRIPT_DIR/wrap_with_mypintool.sh" "$source_dir" \
+        2>&1 | tee -a "$package_output/test.log"; then
+        echo "ELF wrapping failed: $url" >&2
+        return 1
+    fi
+
+    if ! (
+        cd "$repository_dir"
+        timeout "$TEST_TIMEOUT" makepkg \
+            --config "$MAKEPKG_CONF" \
+            --force --syncdeps --noconfirm --needed --skippgpcheck
+    ) 2>&1 | tee -a "$package_output/test.log"; then
+        echo "Instrumented tests failed or timed out: $url" | tee -a "$SUMMARY_LOG" >&2
+    fi
+
+    collect_artifacts "$repository_dir" "$package_output"
+    restore_current_package
+
+    if [[ ! -s "$execution_log" ]]; then
+        echo "No wrapped test executable ran: $url" | tee -a "$SUMMARY_LOG" >&2
+        return 1
+    fi
+
+    echo "$url" >> "$PROCESSED_FILE"
+    echo "[$(date --iso-8601=seconds)] DONE  $url" | tee -a "$SUMMARY_LOG"
+}
+
+failures=0
+
+while IFS= read -r url || [[ -n $url ]]; do
+    url=${url%$'\r'}
+    [[ -z $url || $url =~ ^[[:space:]]*# ]] && continue
+
+    if grep -Fxq "$url" "$PROCESSED_FILE"; then
+        echo "Already processed: $url" | tee -a "$SUMMARY_LOG"
+        continue
+    fi
+
+    if ! process_package "$url"; then
+        restore_current_package
+        echo "$url" >> "$FAILURE_FILE"
+        echo "[$(date --iso-8601=seconds)] FAIL  $url" | tee -a "$SUMMARY_LOG" >&2
+        failures=$((failures + 1))
+    fi
+done < "$URL_LIST"
+
+if (( failures > 0 )); then
+    echo "Collection finished with $failures failed package(s). See: $FAILURE_FILE" >&2
+    exit 1
+fi
+
+echo "Collection finished successfully. Results: $OUTPUT_ROOT"

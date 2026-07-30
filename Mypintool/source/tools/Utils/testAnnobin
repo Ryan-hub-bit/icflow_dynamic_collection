@@ -1,0 +1,31 @@
+#!/bin/bash
+
+# define the directory where annobin is installed
+annobin_plugin_dir="/usr/lib/gcc"
+
+# check if the directory exists
+if [ -d "$annobin_plugin_dir" ]; then
+
+    # check if annobin files exist in the directory and its subdirectories
+    if find "$annobin_plugin_dir" -name 'annobin*.so' | grep -q .; then
+
+        # sanity check - try compile hello.c file with annobin plugin
+        hello_src=`pwd`/../Utils/hello.c
+        cc $hello_src -fplugin=annobin -fplugin-arg-annobin-note-format=string -fplugin-arg-annobin-enable -o hello_exe
+
+        if [ $? -eq 0 ]; then
+            # compilation with annobin successful
+            rm hello_exe
+            echo 1
+        else
+            # compilation with annobin failed
+            echo 0
+        fi
+    else
+        # annobin plugin not installed
+        echo 0
+    fi
+else
+    # directory /usr/lib/gcc does not exist
+    echo 0
+fi

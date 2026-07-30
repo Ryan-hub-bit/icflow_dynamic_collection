@@ -1,0 +1,19 @@
+Indirect Jumps in /home/isec/Documents/pin-external-3.31-98869-gfa6f126a8-gcc-linux/test/testO2:
+Base Address: 0x5633f5398000
+High Address: 0x5633f539a18f
+-----------------------------------
+Address: 0x5633f539942c | Routine: .fini | Target: 0x7f0379f061a8 | Instruction: ret  | Executed: 1 times
+Address: 0x5633f53990a0 | Routine: .plt | Target: 0x5633f53990a6 | Instruction: jmp qword ptr [rip+0x2f92] | Executed: 2 times
+Address: 0x5633f539941e | Routine: .text | Target: 0x7f0366223a90 | Instruction: ret  | Executed: 1 times
+Address: 0x5633f5399040 | Routine: .plt | Target: 0x5633f5399046 | Instruction: jmp qword ptr [rip+0x2fc2] | Executed: 5 times
+Address: 0x5633f5399070 | Routine: .plt | Target: 0x5633f5399076 | Instruction: jmp qword ptr [rip+0x2faa] | Executed: 1 times
+Address: 0x5633f5399060 | Routine: .plt | Target: 0x5633f5399066 | Instruction: jmp qword ptr [rip+0x2fb2] | Executed: 3 times
+Address: 0x5633f5399050 | Routine: .plt | Target: 0x5633f5399056 | Instruction: jmp qword ptr [rip+0x2fba] | Executed: 1 times
+Address: 0x5633f53991c4 | Routine: .text | Target: 0x7f0379f020e2 | Instruction: ret  | Executed: 1 times
+Address: 0x5633f53990b0 | Routine: .plt.got | Target: 0x7f036623e4b0 | Instruction: jmp qword ptr [rip+0x2efa] | Executed: 1 times
+Address: 0x5633f5399026 | Routine: .plt | Target: 0x7f0379f14a20 | Instruction: jmp qword ptr [rip+0x2fcc] | Executed: 7 times
+Address: 0x5633f5399148 | Routine: .text | Target: 0x5633f53991bc | Instruction: ret  | Executed: 1 times
+Address: 0x5633f5399090 | Routine: .plt | Target: 0x5633f5399096 | Instruction: jmp qword ptr [rip+0x2f9a] | Executed: 1 times
+Address: 0x5633f5399188 | Routine: .text | Target: 0x7f0366223bbe | Instruction: ret  | Executed: 1 times
+Address: 0x5633f5399030 | Routine: .plt | Target: 0x5633f5399036 | Instruction: jmp qword ptr [rip+0x2fca] | Executed: 5 times
+Address: 0x5633f539901a | Routine: _init | Target: 0x7f0366223b70 | Instruction: ret  | Executed: 1 times

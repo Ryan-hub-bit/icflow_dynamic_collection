@@ -1,0 +1,4 @@
+Indirect Return: Source: 0x55e17545e148 -> Target: 0x55e17545e1bc
+  Function Name: .text
+  Segment Base: 0x55e17545e0c0  Image: /home/isec/Documents/pin-external-3.31-98869-gfa6f126a8-gcc-linux/test/testO2 (Base: 0x55e17545d000, End: 0x55e17545f18f)
+
