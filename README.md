@@ -62,12 +62,15 @@ docker build \
   -t icflow-arch .
 ```
 
-Then mount the parent directory and enter the container:
+Then mount this repository and mount the sibling LLVM checkout at
+`$HOME/llvm-project`, which is the path used by the original `arch_scripts`
+`.makepkg.conf`:
 
 ```bash
 docker run --rm -it --init \
   --name icflow \
-  -v "$(dirname "$PWD"):/workspace" \
+  -v "$PWD:/workspace/icflow_dynamic_collection" \
+  -v "$(dirname "$PWD")/llvm-project:/home/icflow/llvm-project" \
   -w /workspace/icflow_dynamic_collection \
   icflow-arch
 ```
@@ -95,8 +98,8 @@ You must use
 Do not replace it with the system Clang:
 
 ```bash
-git clone https://github.com/Ryan-hub-bit/llvm-project.git /absolute/path/to/llvm-project
-cd /absolute/path/to/llvm-project
+git clone https://github.com/Ryan-hub-bit/llvm-project.git "$HOME/llvm-project"
+cd "$HOME/llvm-project"
 
 cmake -S llvm -B build -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
@@ -114,10 +117,11 @@ Verify the build:
 ./build/bin/ld.lld --version
 ```
 
-The repository's `.makepkg.conf` keeps the effective `arch_scripts` build
-settings: `-O3`, the custom `ld.lld`, non-PIE linking, enabled `check()`
-functions, and unstripped binaries. It uses `LLVM_BUILD` instead of a
-hard-coded home-directory path.
+The repository's `.makepkg.conf` is copied from `arch_scripts`. Its two
+duplicated `CFLAGS="-O3"` assignments are commented out for the initial
+baseline run. The remaining original settings still use
+`$HOME/llvm-project/build/bin/ld.lld`, non-PIE linking, enabled `check()`
+functions, and unstripped binaries.
 
 ## 3. Build the bundled MyPinTool
 
@@ -172,7 +176,7 @@ small URL file before starting either complete snapshot.
 Return to this repository, set the three absolute paths, and run the collector:
 
 ```bash
-export LLVM_BUILD=/absolute/path/to/llvm-project/build
+export LLVM_BUILD="$HOME/llvm-project/build"
 export PIN_ROOT=/absolute/path/to/icflow_dynamic_collection/Mypintool
 export PINTOOL="$PIN_ROOT/source/tools/MyPinTool/obj-intel64/MyPinTool.so"
 
@@ -256,8 +260,8 @@ terminated with `SIGKILL`, run `restore_wrapped_elfs.sh` manually.
   MyPinTool launch scripts.
 - `restore_wrapped_elfs.sh`: restores the original ELF files from their
   `.orig` backups.
-- `.makepkg.conf`: preserves the effective `arch_scripts` compiler/linker and
-  package settings while using the configured `LLVM_BUILD` path.
+- `.makepkg.conf`: copied from `arch_scripts`, with both duplicated `-O3`
+  assignments commented out for the baseline run.
 - `core/` and `extra/`: package snapshots copied from `arch_scripts`.
 - `collect_arch.sh`: runs the dynamic collector for the Core, Extra, or both
   copied package sets.

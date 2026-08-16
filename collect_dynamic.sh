@@ -12,7 +12,8 @@ URL_LIST contains one Arch packaging or AUR Git URL per line. Blank lines and
 lines beginning with # are ignored.
 
 Required environment variables:
-  LLVM_BUILD   Build directory of Ryan-hub-bit/llvm-project
+  LLVM_BUILD   Build directory of Ryan-hub-bit/llvm-project. The repository
+               .makepkg.conf expects $HOME/llvm-project/build.
   PIN_ROOT     Root directory of the Intel Pin/MyPinTool repository
 
 Optional environment variables:
@@ -67,12 +68,14 @@ LLVM_BUILD=$(realpath "$LLVM_BUILD")
 PIN_ROOT=$(realpath "$PIN_ROOT")
 PINTOOL=${PINTOOL:-"$PIN_ROOT/source/tools/MyPinTool/obj-intel64/MyPinTool.so"}
 PINTOOL=$(realpath "$PINTOOL")
-MAKEPKG_CONF=${MAKEPKG_CONF:-"$SCRIPT_DIR/.makepkg.conf"}
+DEFAULT_MAKEPKG_CONF="$SCRIPT_DIR/.makepkg.conf"
+MAKEPKG_CONF=${MAKEPKG_CONF:-"$DEFAULT_MAKEPKG_CONF"}
 if [[ ! -f $MAKEPKG_CONF ]]; then
     echo "makepkg config does not exist: $MAKEPKG_CONF" >&2
     exit 1
 fi
 MAKEPKG_CONF=$(realpath "$MAKEPKG_CONF")
+DEFAULT_MAKEPKG_CONF=$(realpath "$DEFAULT_MAKEPKG_CONF")
 BUILD_TIMEOUT=${BUILD_TIMEOUT:-2000}
 TEST_TIMEOUT=${TEST_TIMEOUT:-1800}
 
@@ -83,6 +86,12 @@ fi
 
 if [[ ! -x "$LLVM_BUILD/bin/clang" || ! -x "$LLVM_BUILD/bin/clang++" || ! -x "$LLVM_BUILD/bin/ld.lld" ]]; then
     echo "Custom clang/clang++/ld.lld not found under: $LLVM_BUILD/bin" >&2
+    exit 1
+fi
+
+if [[ $MAKEPKG_CONF == "$DEFAULT_MAKEPKG_CONF" && $LLVM_BUILD != "$HOME/llvm-project/build" ]]; then
+    echo "The arch_scripts .makepkg.conf expects LLVM_BUILD=$HOME/llvm-project/build" >&2
+    echo "Use that path or provide a different MAKEPKG_CONF." >&2
     exit 1
 fi
 
