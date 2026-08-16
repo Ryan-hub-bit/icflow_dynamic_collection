@@ -4,9 +4,11 @@ This repository collects dynamically observed indirect control flow while
 running Arch Linux package tests. Test ELF executables are launched through
 Intel Pin and `MyPinTool`.
 
-Only the dynamic collection workflow was retained from `arch_scripts`. The
-old static batch-build scripts, package and URL snapshots, statistics helpers,
-duplicate implementations, and hard-coded personal paths were removed.
+The maintained collector consolidates the dynamic workflow from
+[`Ryan-hub-bit/arch_scripts`](https://github.com/Ryan-hub-bit/arch_scripts).
+The `core/` and `extra/` package snapshots from that repository are included,
+while its duplicate scripts and hard-coded personal paths are replaced by the
+portable `collect_dynamic.sh` and `collect_arch.sh` entry points.
 
 The Pin kit from
 [Ryan-hub-bit/Mypintool](https://github.com/Ryan-hub-bit/Mypintool) is vendored
@@ -35,6 +37,47 @@ environment in this order:
 Do not run the collection script as `root`; `makepkg` also refuses to run as
 `root`.
 
+## Docker on a Linux host
+
+The included `Dockerfile` creates the required Arch Linux user space on an
+x86-64 Linux Docker host. It runs builds as a non-root user and permits that
+user to run only `pacman` without a password so that `makepkg --syncdeps` can
+install each package's declared dependencies.
+
+Place this repository and the custom LLVM repository in one parent directory:
+
+```text
+icflow-work/
+|-- icflow_dynamic_collection/
+`-- llvm-project/
+```
+
+From `icflow_dynamic_collection/`, build the image with your Linux user and
+group IDs so bind-mounted files retain the correct ownership:
+
+```bash
+docker build \
+  --build-arg USER_ID="$(id -u)" \
+  --build-arg GROUP_ID="$(id -g)" \
+  -t icflow-arch .
+```
+
+Then mount the parent directory and enter the container:
+
+```bash
+docker run --rm -it --init \
+  --name icflow \
+  -v "$(dirname "$PWD"):/workspace" \
+  -w /workspace/icflow_dynamic_collection \
+  icflow-arch
+```
+
+First try Intel Pin with Docker's normal security settings. If the Pin smoke
+test fails because process inspection is denied, recreate the container with
+`--cap-add=SYS_PTRACE --security-opt seccomp=unconfined`. Do not use
+`--privileged`, and do not mount the Docker socket or unrelated personal
+directories into a container that builds third-party `PKGBUILD` files.
+
 ## 1. Install Arch Linux dependencies
 
 ```bash
@@ -52,15 +95,15 @@ You must use
 Do not replace it with the system Clang:
 
 ```bash
-git clone git@github.com:Ryan-hub-bit/llvm-project.git
-cd llvm-project
+git clone https://github.com/Ryan-hub-bit/llvm-project.git /absolute/path/to/llvm-project
+cd /absolute/path/to/llvm-project
 
 cmake -S llvm -B build -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
-  -DLLVM_ENABLE_PROJECTS=clang \
+  -DLLVM_ENABLE_PROJECTS="clang;lld" \
   -DLLVM_TARGETS_TO_BUILD=X86
 
-cmake --build build --target clang llvm-nm -- -j"$(nproc)"
+cmake --build build --target clang llvm-nm lld -- -j"$(nproc)"
 ```
 
 Verify the build:
@@ -68,7 +111,13 @@ Verify the build:
 ```bash
 ./build/bin/clang --version
 ./build/bin/llvm-nm --version
+./build/bin/ld.lld --version
 ```
+
+The repository's `.makepkg.conf` keeps the effective `arch_scripts` build
+settings: `-O3`, the custom `ld.lld`, non-PIE linking, enabled `check()`
+functions, and unstripped binaries. It uses `LLVM_BUILD` instead of a
+hard-coded home-directory path.
 
 ## 3. Build the bundled MyPinTool
 
@@ -95,19 +144,28 @@ You can also verify the launch command directly:
 ../../../pin -t obj-intel64/MyPinTool.so -- /usr/bin/true
 ```
 
-## 4. Prepare the package URL list
+## 4. Choose a package URL list
 
-Create a text file containing one official Arch packaging repository or AUR Git
-URL per line. Blank lines and lines beginning with `#` are ignored. For
-example:
+The package snapshots copied from `arch_scripts` are ready to use:
+
+- `core/clone_urls.txt`: official Core packaging repositories.
+- `extra/clone_urls.txt`: official Extra packaging repositories.
+- `core/packages.txt` and `extra/packages.txt`: package-to-package-base
+  mappings associated with those URL snapshots.
+
+They were copied from `arch_scripts` commit `47e6d6deaa70f631cabd78ecc35b10ce8b98b73a`.
+
+You can also create a smaller text file containing one official Arch packaging
+repository or AUR Git URL per line. Blank lines and lines beginning with `#`
+are ignored. For example:
 
 ```text
 https://gitlab.archlinux.org/archlinux/packaging/packages/zydis.git
 https://aur.archlinux.org/example-package.git
 ```
 
-The list is an input to each experiment, so large package-name and URL snapshots
-that quickly become outdated are not committed to this repository.
+Package snapshots become outdated over time. For a first validation run, use a
+small URL file before starting either complete snapshot.
 
 ## 5. Run dynamic collection
 
@@ -120,6 +178,18 @@ export PINTOOL="$PIN_ROOT/source/tools/MyPinTool/obj-intel64/MyPinTool.so"
 
 ./collect_dynamic.sh /absolute/path/to/package_urls.txt
 ```
+
+To run one of the copied `arch_scripts` package sets, use the compatibility
+entry point:
+
+```bash
+bash ./collect_arch.sh core
+bash ./collect_arch.sh extra /data/icflow-output
+bash ./collect_arch.sh all /data/icflow-output
+```
+
+`extra/clone_urls.txt` contains thousands of repositories, so a complete Extra
+run can take a long time and use substantial disk space.
 
 For each URL, the script performs the following steps:
 
@@ -186,5 +256,10 @@ terminated with `SIGKILL`, run `restore_wrapped_elfs.sh` manually.
   MyPinTool launch scripts.
 - `restore_wrapped_elfs.sh`: restores the original ELF files from their
   `.orig` backups.
-- `makepkg.conf`: inherits the Arch Linux system configuration, enables
-  `check()`, and disables symbol stripping.
+- `.makepkg.conf`: preserves the effective `arch_scripts` compiler/linker and
+  package settings while using the configured `LLVM_BUILD` path.
+- `core/` and `extra/`: package snapshots copied from `arch_scripts`.
+- `collect_arch.sh`: runs the dynamic collector for the Core, Extra, or both
+  copied package sets.
+- `Dockerfile`: creates a non-root Arch Linux build environment on a Linux
+  Docker host.

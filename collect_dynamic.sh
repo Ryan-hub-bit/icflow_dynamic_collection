@@ -18,7 +18,7 @@ Required environment variables:
 Optional environment variables:
   PINTOOL       MyPinTool .so path
   WORK_ROOT     Package checkout directory (default: ./work)
-  MAKEPKG_CONF  makepkg config (default: repository makepkg.conf)
+  MAKEPKG_CONF  makepkg config (default: repository .makepkg.conf)
   BUILD_TIMEOUT First build timeout in seconds (default: 2000)
   TEST_TIMEOUT  Instrumented test timeout in seconds (default: 1800)
 EOF
@@ -67,7 +67,11 @@ LLVM_BUILD=$(realpath "$LLVM_BUILD")
 PIN_ROOT=$(realpath "$PIN_ROOT")
 PINTOOL=${PINTOOL:-"$PIN_ROOT/source/tools/MyPinTool/obj-intel64/MyPinTool.so"}
 PINTOOL=$(realpath "$PINTOOL")
-MAKEPKG_CONF=${MAKEPKG_CONF:-"$SCRIPT_DIR/makepkg.conf"}
+MAKEPKG_CONF=${MAKEPKG_CONF:-"$SCRIPT_DIR/.makepkg.conf"}
+if [[ ! -f $MAKEPKG_CONF ]]; then
+    echo "makepkg config does not exist: $MAKEPKG_CONF" >&2
+    exit 1
+fi
 MAKEPKG_CONF=$(realpath "$MAKEPKG_CONF")
 BUILD_TIMEOUT=${BUILD_TIMEOUT:-2000}
 TEST_TIMEOUT=${TEST_TIMEOUT:-1800}
@@ -77,8 +81,8 @@ if [[ ! $BUILD_TIMEOUT =~ ^[1-9][0-9]*$ || ! $TEST_TIMEOUT =~ ^[1-9][0-9]*$ ]]; 
     exit 1
 fi
 
-if [[ ! -x "$LLVM_BUILD/bin/clang" || ! -x "$LLVM_BUILD/bin/clang++" ]]; then
-    echo "Custom clang/clang++ not found under: $LLVM_BUILD/bin" >&2
+if [[ ! -x "$LLVM_BUILD/bin/clang" || ! -x "$LLVM_BUILD/bin/clang++" || ! -x "$LLVM_BUILD/bin/ld.lld" ]]; then
+    echo "Custom clang/clang++/ld.lld not found under: $LLVM_BUILD/bin" >&2
     exit 1
 fi
 
@@ -93,6 +97,7 @@ if [[ ! -f "$PINTOOL" ]]; then
 fi
 
 export PATH="$LLVM_BUILD/bin:$PATH"
+export LLVM_BUILD
 export CC="$LLVM_BUILD/bin/clang"
 export CXX="$LLVM_BUILD/bin/clang++"
 
