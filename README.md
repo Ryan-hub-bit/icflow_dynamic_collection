@@ -6,9 +6,10 @@ Intel Pin and `MyPinTool`.
 
 The maintained collector consolidates the dynamic workflow from
 [`Ryan-hub-bit/arch_scripts`](https://github.com/Ryan-hub-bit/arch_scripts).
-The `core/` and `extra/` package snapshots from that repository are included,
-while its duplicate scripts and hard-coded personal paths are replaced by the
-portable `collect_dynamic.sh` and `collect_arch.sh` entry points.
+Current `core/` and `extra/` package lists are generated on demand from the Arch
+Linux package API instead of storing snapshots in Git. Duplicate scripts and
+hard-coded personal paths are replaced by the portable `collect_dynamic.sh` and
+`collect_arch.sh` entry points.
 
 The Pin kit from
 [Ryan-hub-bit/Mypintool](https://github.com/Ryan-hub-bit/Mypintool) is vendored
@@ -148,16 +149,18 @@ You can also verify the launch command directly:
 ../../../pin -t obj-intel64/MyPinTool.so -- /usr/bin/true
 ```
 
-## 4. Choose a package URL list
+## 4. Choose or generate a package URL list
 
-The package snapshots copied from `arch_scripts` are ready to use:
+Generate current Core and Extra package lists from the Arch Linux package API:
 
-- `core/clone_urls.txt`: official Core packaging repositories.
-- `extra/clone_urls.txt`: official Extra packaging repositories.
-- `core/packages.txt` and `extra/packages.txt`: package-to-package-base
-  mappings associated with those URL snapshots.
+```bash
+./collect_arch_git.sh
+```
 
-They were copied from `arch_scripts` commit `47e6d6deaa70f631cabd78ecc35b10ce8b98b73a`.
+This creates `core/packages.txt`, `core/clone_urls.txt`,
+`extra/packages.txt`, and `extra/clone_urls.txt` in the repository. The
+generated files are ignored by Git so the lists can be refreshed without
+creating repository changes.
 
 You can also create a smaller text file containing one official Arch packaging
 repository or AUR Git URL per line. Blank lines and lines beginning with `#`
@@ -168,8 +171,8 @@ https://gitlab.archlinux.org/archlinux/packaging/packages/zydis.git
 https://aur.archlinux.org/example-package.git
 ```
 
-Package snapshots become outdated over time. For a first validation run, use a
-small URL file before starting either complete snapshot.
+For a first validation run, use a small URL file before starting either
+complete generated list.
 
 ## 5. Run dynamic collection
 
@@ -183,8 +186,8 @@ export PINTOOL="$PIN_ROOT/source/tools/MyPinTool/obj-intel64/MyPinTool.so"
 ./collect_dynamic.sh /absolute/path/to/package_urls.txt
 ```
 
-To run one of the copied `arch_scripts` package sets, use the compatibility
-entry point:
+To generate and run a complete Arch package set, use the compatibility entry
+point. Missing lists are generated automatically:
 
 ```bash
 bash ./collect_arch.sh core
@@ -192,8 +195,8 @@ bash ./collect_arch.sh extra /data/icflow-output
 bash ./collect_arch.sh all /data/icflow-output
 ```
 
-`extra/clone_urls.txt` contains thousands of repositories, so a complete Extra
-run can take a long time and use substantial disk space.
+The generated `extra/clone_urls.txt` contains thousands of repositories, so a
+complete Extra run can take a long time and use substantial disk space.
 
 For each URL, the script performs the following steps:
 
@@ -262,8 +265,9 @@ terminated with `SIGKILL`, run `restore_wrapped_elfs.sh` manually.
   `.orig` backups.
 - `.makepkg.conf`: copied from `arch_scripts`, with both duplicated `-O3`
   assignments commented out for the baseline run.
-- `core/` and `extra/`: package snapshots copied from `arch_scripts`.
-- `collect_arch.sh`: runs the dynamic collector for the Core, Extra, or both
-  copied package sets.
+- `collect_arch_git.sh`: generates current Core and Extra package lists from the
+  Arch Linux package API.
+- `collect_arch.sh`: generates missing lists, then runs the dynamic collector
+  for Core, Extra, or both.
 - `Dockerfile`: creates a non-root Arch Linux build environment on a Linux
   Docker host.

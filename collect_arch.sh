@@ -9,8 +9,9 @@ usage() {
 Usage: collect_arch.sh {core|extra|all} [OUTPUT_DIRECTORY]
 
 Run ICFlow dynamic collection with the package URL snapshots copied from
-Ryan-hub-bit/arch_scripts. Required and optional environment variables are the
-same as collect_dynamic.sh.
+Ryan-hub-bit/arch_scripts. Missing Core and Extra lists are generated from the
+current Arch Linux package API. Required and optional environment variables are
+the same as collect_dynamic.sh.
 
 Examples:
   bash ./collect_arch.sh core
@@ -47,6 +48,14 @@ case $selection in
 esac
 
 failures=0
+
+for repository in "${repositories[@]}"; do
+    if [[ ! -f "$SCRIPT_DIR/$repository/clone_urls.txt" ]]; then
+        echo "Package URL lists are missing; generating current Core and Extra lists..."
+        bash "$SCRIPT_DIR/collect_arch_git.sh" "$SCRIPT_DIR"
+        break
+    fi
+done
 
 for repository in "${repositories[@]}"; do
     url_list="$SCRIPT_DIR/$repository/clone_urls.txt"

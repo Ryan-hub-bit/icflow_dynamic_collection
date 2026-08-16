@@ -6,8 +6,10 @@ ARG GROUP_ID=1000
 
 RUN pacman -Syu --noconfirm --needed \
         cmake \
+        curl \
         file \
         git \
+        jq \
         ninja \
         python \
         sudo \
