@@ -20,6 +20,17 @@
 ###### Place all generic definitions here ######
 
 TOOL_LIBS += -pthread
+
+# Pin 3.31 predates GCC 16.  GCC 16 diagnoses two constructs in the Pin SDK
+# headers that are outside this tool's source and promotes them to errors via
+# the SDK's -Werror setting.
+ifeq ($(COMPILER),gcc)
+GCC_VER_GE_16 := $(shell $(TOOLS_ROOT)/Utils/testToolVersion $(CXXPATH) ge 16.0)
+ifeq ($(GCC_VER_GE_16),1)
+TOOL_CXXFLAGS += -Wno-template-body -Wno-non-c-typedef-for-linkage
+endif
+endif
+
 # This defines tests which run tools of the same name.  This is simply for convenience to avoid
 # defining the test name twice (once in TOOL_ROOTS and again in TEST_ROOTS).
 # Tests defined here should not be defined in TOOL_ROOTS and TEST_ROOTS.

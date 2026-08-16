@@ -48,7 +48,7 @@ fi
 : "${LLVM_BUILD:?LLVM_BUILD must point to the custom LLVM build directory}"
 : "${PIN_ROOT:?PIN_ROOT must point to the Intel Pin kit root}"
 
-for command in file find git makepkg realpath timeout; do
+for command in file find git makepkg realpath sed timeout; do
     if ! command -v "$command" >/dev/null 2>&1; then
         echo "Required command not found: $command" >&2
         exit 1
@@ -143,6 +143,9 @@ collect_artifacts() {
 
         binary=${result%_icall.json}
         binary=${binary%_ijump.json}
+        if [[ ! -f $binary && $binary == *.orig && -f ${binary%.orig} ]]; then
+            binary=${binary%.orig}
+        fi
         if [[ -f $binary ]]; then
             relative=${binary#"$repository_dir"/}
             destination="$package_output/artifacts/$relative"
@@ -152,9 +155,40 @@ collect_artifacts() {
     done < <(find "$repository_dir/src" -type f \( -name '*_icall.json' -o -name '*_ijump.json' \) -size +2c -print0 2>/dev/null)
 }
 
+write_instrumented_pkgbuild() {
+    local original_pkgbuild=$1
+    local instrumented_pkgbuild=$2
+    local execution_log=$3
+
+    {
+        printf 'source %q\n' "$original_pkgbuild"
+        cat <<'EOF'
+
+if declare -F check >/dev/null; then
+    eval "$(declare -f check | sed '1s/^check /icflow_original_check /')"
+
+    check() {
+        local icflow_check_status=0
+
+EOF
+        printf '        PIN_ROOT=%q PINTOOL=%q WRAP_LOG=%q %q "$srcdir"\n' \
+            "$PIN_ROOT" "$PINTOOL" "$execution_log" "$SCRIPT_DIR/wrap_with_mypintool.sh"
+        cat <<'EOF'
+        icflow_original_check "$@" || icflow_check_status=$?
+EOF
+        printf '        %q "$srcdir" || true\n' "$SCRIPT_DIR/restore_wrapped_elfs.sh"
+        cat <<'EOF'
+        return "$icflow_check_status"
+    }
+fi
+EOF
+    } > "$instrumented_pkgbuild"
+}
+
 process_package() {
     local url=$1
     local package_name repository_dir source_dir package_output execution_log
+    local instrumented_pkgbuild
 
     package_name=$(basename "$url" .git)
     repository_dir="$WORK_ROOT/$package_name"
@@ -194,22 +228,20 @@ process_package() {
 
     : > "$execution_log"
     current_source_dir=$source_dir
-
-    if ! PIN_ROOT="$PIN_ROOT" PINTOOL="$PINTOOL" WRAP_LOG="$execution_log" \
-        "$SCRIPT_DIR/wrap_with_mypintool.sh" "$source_dir" \
-        2>&1 | tee -a "$package_output/test.log"; then
-        echo "ELF wrapping failed: $url" >&2
-        return 1
-    fi
+    instrumented_pkgbuild="$repository_dir/PKGBUILD.icflow"
+    write_instrumented_pkgbuild \
+        "$repository_dir/PKGBUILD" "$instrumented_pkgbuild" "$execution_log"
 
     if ! (
         cd "$repository_dir"
         timeout "$TEST_TIMEOUT" makepkg \
             --config "$MAKEPKG_CONF" \
+            -p "${instrumented_pkgbuild##*/}" \
             --force --syncdeps --noconfirm --needed --skippgpcheck
     ) 2>&1 | tee -a "$package_output/test.log"; then
         echo "Instrumented tests failed or timed out: $url" | tee -a "$SUMMARY_LOG" >&2
     fi
+    rm -f -- "$instrumented_pkgbuild"
 
     collect_artifacts "$repository_dir" "$package_output"
     restore_current_package
