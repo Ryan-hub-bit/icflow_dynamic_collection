@@ -1,0 +1,3 @@
+# Verified validation set. Each PKGBUILD runs tests that produce ICFlow output.
+https://gitlab.archlinux.org/archlinux/packaging/packages/zydis.git
+https://gitlab.archlinux.org/archlinux/packaging/packages/expat.git

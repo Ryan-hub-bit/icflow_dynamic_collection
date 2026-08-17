@@ -1,2 +1,16 @@
 **
+!.dockerignore
+!.gitattributes
 !Dockerfile
+!.gitignore
+!README.md
+!.makepkg.conf
+!collect_dynamic.sh
+!collect_arch.sh
+!collect_arch_git.sh
+!wrap_with_mypintool.sh
+!restore_wrapped_elfs.sh
+!buildall_timeout.sh
+!test-packages.txt
+!testlink.cpp
+!Mypintool/**

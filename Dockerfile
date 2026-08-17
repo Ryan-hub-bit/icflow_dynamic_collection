@@ -12,18 +12,23 @@ RUN pacman -Syu --noconfirm --needed \
         jq \
         ninja \
         python \
+        rsync \
         sudo \
-    && groupadd --gid "$GROUP_ID" "$USER_NAME" \
+        vim \
+    && pacman -Scc --noconfirm
+
+RUN groupadd --gid "$GROUP_ID" "$USER_NAME" \
     && useradd --uid "$USER_ID" --gid "$GROUP_ID" --create-home --shell /bin/bash "$USER_NAME" \
     && printf '%s ALL=(root) NOPASSWD: /usr/bin/pacman\n' "$USER_NAME" \
         > "/etc/sudoers.d/$USER_NAME-pacman" \
-    && chmod 0440 "/etc/sudoers.d/$USER_NAME-pacman" \
-    && mkdir -p /workspace/icflow_dynamic_collection \
-    && chown -R "$USER_ID:$GROUP_ID" /workspace \
-    && pacman -Scc --noconfirm
+    && chmod 0440 "/etc/sudoers.d/$USER_NAME-pacman"
+
+COPY . /workspace/icflow_dynamic_collection
+RUN chown -R "$USER_ID:$GROUP_ID" /workspace/icflow_dynamic_collection
+
+WORKDIR /workspace/icflow_dynamic_collection
 
 ENV HOME=/home/${USER_NAME}
 USER ${USER_NAME}
-WORKDIR /workspace/icflow_dynamic_collection
 
 CMD ["/bin/bash"]

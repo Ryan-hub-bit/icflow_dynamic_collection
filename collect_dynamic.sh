@@ -215,7 +215,7 @@ process_package() {
         cd "$repository_dir"
         timeout "$BUILD_TIMEOUT" makepkg \
             --config "$MAKEPKG_CONF" \
-            --syncdeps --noconfirm --needed --skippgpcheck --nocheck
+            --force --syncdeps --noconfirm --needed --skippgpcheck --nocheck
     ) 2>&1 | tee -a "$package_output/build.log"; then
         echo "Initial build failed: $url" >&2
         return 1

@@ -1,102 +1,46 @@
-# ICFlow Dynamic Collection
+# Reproduce ICFlow Dynamic Collection
 
-This repository collects dynamically observed indirect control flow while
-running Arch Linux package tests. Test ELF executables are launched through
-Intel Pin and `MyPinTool`.
+This repository combines the required scripts and `.makepkg.conf` from
+[`arch_scripts`](https://github.com/Ryan-hub-bit/arch_scripts) with the Intel
+Pin kit and JSON-producing `MyPinTool`. The copied `.makepkg.conf` keeps
+`CFLAGS="-O3"` commented for the baseline run. Generated Core/Extra lists and
+build results are not stored in Git.
 
-The maintained collector consolidates the dynamic workflow from
-[`Ryan-hub-bit/arch_scripts`](https://github.com/Ryan-hub-bit/arch_scripts).
-Current `core/` and `extra/` package lists are generated on demand from the Arch
-Linux package API instead of storing snapshots in Git. Duplicate scripts and
-hard-coded personal paths are replaced by the portable `collect_dynamic.sh` and
-`collect_arch.sh` entry points.
+The workflow below was designed for an x86-64 Linux host with Docker. Package
+builds run as the non-root `icflow` user because `makepkg` refuses to run as
+root.
 
-The Pin kit from
-[Ryan-hub-bit/Mypintool](https://github.com/Ryan-hub-bit/Mypintool) is vendored
-under `Mypintool/` without its original `.git` directory, so no separate Pin
-download is required after cloning this repository. The bundled kit is based on
-commit
-[`bf574a6`](https://github.com/Ryan-hub-bit/Mypintool/commit/bf574a6437adad6e57be106f92b4f541359638cf).
-The default `MyPinTool` source has been synchronized with the JSON-producing
-ICFlow implementation. It writes `*_icall.json` and `*_ijump.json` files next
-to the target ELF. Stale prebuilt `.o` and `.so` files are intentionally
-excluded; rebuild the tool as described below.
-
-## Environment and required order
-
-This repository can be inspected or edited on any Linux distribution, but
-**dynamic collection must run on an Arch Linux x86-64 machine**. Prepare the
-environment in this order:
-
-1. Prepare an Arch Linux machine and install the build dependencies.
-2. First build the custom `Ryan-hub-bit/llvm-project`.
-3. Then build the `MyPinTool` bundled with this repository.
-4. Finally run the collection script. Package test executables will be launched
-   as `pin -t MyPinTool.so -- <test>.orig ...` instead of being executed
-   directly.
-
-Do not run the collection script as `root`; `makepkg` also refuses to run as
-`root`.
-
-## Docker on a Linux host
-
-The included `Dockerfile` creates the required Arch Linux user space on an
-x86-64 Linux Docker host. It runs builds as a non-root user and permits that
-user to run only `pacman` without a password so that `makepkg --syncdeps` can
-install each package's declared dependencies.
-
-Place this repository and the custom LLVM repository in one parent directory:
-
-```text
-icflow-work/
-|-- icflow_dynamic_collection/
-`-- llvm-project/
-```
-
-From `icflow_dynamic_collection/`, build the image with your Linux user and
-group IDs so bind-mounted files retain the correct ownership:
+## 1. Build and enter the Docker container
 
 ```bash
+git clone --branch codex/arch-scripts-docker-compat \
+  https://github.com/Ryan-hub-bit/icflow_dynamic_collection.git
+cd icflow_dynamic_collection
+
 docker build \
   --build-arg USER_ID="$(id -u)" \
   --build-arg GROUP_ID="$(id -g)" \
   -t icflow-arch .
-```
 
-Then mount this repository and mount the sibling LLVM checkout at
-`$HOME/llvm-project`, which is the path used by the original `arch_scripts`
-`.makepkg.conf`:
-
-```bash
-docker run --rm -it --init \
+docker run -it --init \
   --name icflow \
-  -v "$PWD:/workspace/icflow_dynamic_collection" \
-  -v "$(dirname "$PWD")/llvm-project:/home/icflow/llvm-project" \
-  -w /workspace/icflow_dynamic_collection \
+  --cap-add=SYS_PTRACE \
+  --security-opt seccomp=unconfined \
   icflow-arch
 ```
 
-First try Intel Pin with Docker's normal security settings. If the Pin smoke
-test fails because process inspection is denied, recreate the container with
-`--cap-add=SYS_PTRACE --security-opt seccomp=unconfined`. Do not use
-`--privileged`, and do not mount the Docker socket or unrelated personal
-directories into a container that builds third-party `PKGBUILD` files.
-
-## 1. Install Arch Linux dependencies
+After leaving the shell, enter the same container again with:
 
 ```bash
-sudo pacman -Syu --needed base-devel cmake ninja git python file
+docker start -ai icflow
 ```
 
-`makepkg --syncdeps` may install additional dependencies declared by each
-`PKGBUILD`, so working `sudo` access and a network connection are required
-during collection.
+If it is already running, use `docker exec -it icflow bash`. The image also
+contains `vim`, `jq`, the Arch build tools, CMake, and Ninja.
 
-## 2. Build the custom LLVM first
+## 2. Compile the custom LLVM inside Docker
 
-You must use
-[Ryan-hub-bit/llvm-project](https://github.com/Ryan-hub-bit/llvm-project).
-Do not replace it with the system Clang:
+Run these commands inside the container:
 
 ```bash
 git clone https://github.com/Ryan-hub-bit/llvm-project.git "$HOME/llvm-project"
@@ -110,164 +54,139 @@ cmake -S llvm -B build -G Ninja \
 cmake --build build --target clang llvm-nm lld -- -j"$(nproc)"
 ```
 
-Verify the build:
+Verify the toolchain:
 
 ```bash
-./build/bin/clang --version
-./build/bin/llvm-nm --version
-./build/bin/ld.lld --version
+"$HOME/llvm-project/build/bin/clang" --version
+"$HOME/llvm-project/build/bin/llvm-nm" --version
+"$HOME/llvm-project/build/bin/ld.lld" --version
 ```
 
-The repository's `.makepkg.conf` is copied from `arch_scripts`. Its two
-duplicated `CFLAGS="-O3"` assignments are commented out for the initial
-baseline run. The remaining original settings still use
-`$HOME/llvm-project/build/bin/ld.lld`, non-PIE linking, enabled `check()`
-functions, and unstripped binaries.
+## 3. Compile and smoke-test MyPinTool
 
-## 3. Build the bundled MyPinTool
-
-`Mypintool/` contains both the Intel Pin kit and
-`source/tools/MyPinTool`. Enter the directory inside this repository and
-rebuild the tool instead of relying on an existing binary:
+The small [`testlink.cpp`](testlink.cpp) program contains an indirect function
+call and provides a quick end-to-end Pin/JSON check.
 
 ```bash
-cd /absolute/path/to/icflow_dynamic_collection/Mypintool/source/tools/MyPinTool
+cd /workspace/icflow_dynamic_collection/Mypintool/source/tools/MyPinTool
 make clean
-make obj-intel64/MyPinTool.so
-```
+make obj-intel64/MyPinTool.so -j"$(nproc)"
 
-Verify the required files:
-
-```bash
-test -x ../../../pin
-test -f obj-intel64/MyPinTool.so
-```
-
-You can also verify the launch command directly:
-
-```bash
-../../../pin -t obj-intel64/MyPinTool.so -- /usr/bin/true
-```
-
-## 4. Choose or generate a package URL list
-
-Generate current Core and Extra package lists from the Arch Linux package API:
-
-```bash
-./collect_arch_git.sh
-```
-
-This creates `core/packages.txt`, `core/clone_urls.txt`,
-`extra/packages.txt`, and `extra/clone_urls.txt` in the repository. The
-generated files are ignored by Git so the lists can be refreshed without
-creating repository changes.
-
-You can also create a smaller text file containing one official Arch packaging
-repository or AUR Git URL per line. Blank lines and lines beginning with `#`
-are ignored. For example:
-
-```text
-https://gitlab.archlinux.org/archlinux/packaging/packages/zydis.git
-https://aur.archlinux.org/example-package.git
-```
-
-For a first validation run, use a small URL file before starting either
-complete generated list.
-
-## 5. Run dynamic collection
-
-Return to this repository, set the three absolute paths, and run the collector:
-
-```bash
+cd /workspace/icflow_dynamic_collection
 export LLVM_BUILD="$HOME/llvm-project/build"
-export PIN_ROOT=/absolute/path/to/icflow_dynamic_collection/Mypintool
+export PIN_ROOT="$PWD/Mypintool"
 export PINTOOL="$PIN_ROOT/source/tools/MyPinTool/obj-intel64/MyPinTool.so"
+export MAKEPKG_CONF="$PWD/.makepkg.conf"
 
-./collect_dynamic.sh /absolute/path/to/package_urls.txt
+"$LLVM_BUILD/bin/clang++" -O0 -g -fno-pie -no-pie \
+  testlink.cpp -o testlink
+rm -f testlink_icall.json testlink_ijump.json
+"$PIN_ROOT/pin" -t "$PINTOOL" -- "$PWD/testlink"
+
+test -s testlink_icall.json
+jq . testlink_icall.json
 ```
 
-To generate and run a complete Arch package set, use the compatibility entry
-point. Missing lists are generated automatically:
+`testlink_icall.json` must contain at least one source address mapped to the
+indirectly called target. `testlink_ijump.json` may be empty because this small
+program is intended to test an indirect call.
+
+## 4. Build sample Arch packages and collect static binaries
+
+`test-packages.txt` contains two verified official Arch package repositories:
+[Zydis](https://gitlab.archlinux.org/archlinux/packaging/packages/zydis) and
+[Expat](https://gitlab.archlinux.org/archlinux/packaging/packages/expat). Run the copied and Docker-adapted
+`buildall_timeout.sh` on that list:
 
 ```bash
-bash ./collect_arch.sh core
-bash ./collect_arch.sh extra /data/icflow-output
-bash ./collect_arch.sh all /data/icflow-output
+cd /workspace/icflow_dynamic_collection
+export LLVM_BUILD="$HOME/llvm-project/build"
+export MAKEPKG_CONF="$PWD/.makepkg.conf"
+
+ARCH_PACKAGES_ROOT="$HOME/icflow-static" \
+MAX_JOBS=2 \
+BUILD_TIMEOUT=1800 \
+./buildall_timeout.sh sample "$PWD/test-packages.txt"
+
+find "$HOME/icflow-static/elf_outputs" -type f -exec file {} + | grep ELF
+cat "$HOME/icflow-static/elf_map.txt"
 ```
 
-The generated `extra/clone_urls.txt` contains thousands of repositories, so a
-complete Extra run can take a long time and use substantial disk space.
+An `ELF` line and a corresponding entry in `elf_map.txt` confirm that the
+static package binary was built and copied successfully.
 
-For each URL, the script performs the following steps:
+## 5. Collect dynamic ICFlow ground truth
 
-1. Clone the packaging repository into `work/`.
-2. Run `makepkg` once with `--nocheck` and the custom LLVM to produce the test
-   ELF executables.
-3. Temporarily replace ELF executables under `src/` with MyPinTool launch
-   scripts, preserving each original executable with an `.orig` suffix.
-4. Run `makepkg` again with `check()` enabled. When a test launches an ELF, it
-   actually runs `pin -t MyPinTool.so -- <binary>.orig ...`.
-5. Save the logs and non-empty `*_icall.json` and `*_ijump.json` files
-   produced by MyPinTool, then restore the original ELF executables.
-
-Results are written to `output/` by default:
-
-```text
-output/
-├── collection.log
-├── processed_urls.txt
-├── failed_urls.txt
-└── <package>/
-    ├── build.log
-    ├── test.log
-    ├── wrapped-executions.tsv
-    └── artifacts/
-```
-
-A non-empty `wrapped-executions.tsv` confirms that at least one test ELF was
-actually launched through MyPinTool. Successfully processed URLs are skipped on
-subsequent runs.
-
-Timeouts and the working directory can be customized:
+Use a separate output directory so the static and dynamic results are easy to
+compare:
 
 ```bash
-BUILD_TIMEOUT=3600 \
-TEST_TIMEOUT=3600 \
-WORK_ROOT=/data/icflow-work \
-./collect_dynamic.sh package_urls.txt /data/icflow-output
+cd /workspace/icflow_dynamic_collection
+export LLVM_BUILD="$HOME/llvm-project/build"
+export PIN_ROOT="$PWD/Mypintool"
+export PINTOOL="$PIN_ROOT/source/tools/MyPinTool/obj-intel64/MyPinTool.so"
+export MAKEPKG_CONF="$PWD/.makepkg.conf"
+
+BUILD_TIMEOUT=1800 TEST_TIMEOUT=1800 \
+WORK_ROOT="$HOME/icflow-work" \
+./collect_dynamic.sh "$PWD/test-packages.txt" "$HOME/icflow-dynamic"
 ```
 
-## Wrap or restore ELF files manually
-
-For a single prebuilt project, invoke the wrapper directly:
+Verify that package tests really launched through Pin and that a binary/ground
+truth pair exists:
 
 ```bash
-PIN_ROOT="$PIN_ROOT" PINTOOL="$PINTOOL" \
-  ./wrap_with_mypintool.sh /path/to/package/src
+find "$HOME/icflow-dynamic" -name wrapped-executions.tsv -size +0 -print
+find "$HOME/icflow-dynamic" \
+  -type f \( -name '*_icall.json' -o -name '*_ijump.json' \) \
+  -size +2c -print
 
-# Restore the original ELF files after running the tests
-./restore_wrapped_elfs.sh /path/to/package/src
+find "$HOME/icflow-dynamic" -path '*/artifacts/*' -type f -exec file {} + \
+  | grep ELF
 ```
 
-The collector automatically restores wrapped executables after normal
-completion, errors, `SIGINT`, or `SIGTERM`. If the process is forcibly
-terminated with `SIGKILL`, run `restore_wrapped_elfs.sh` manually.
+For every JSON result, the collector also copies its associated ELF into the
+same package's `artifacts/` tree. A non-empty `wrapped-executions.tsv` proves a
+package test executed an instrumented binary; non-empty `*_icall.json` or
+`*_ijump.json` files are the dynamic ICFlow ground truth.
 
-## Repository contents
+This workflow was validated from a clean Docker build with custom LLVM/Clang
+20.0.0git. Zydis produced ICFlow for `ZydisInfo`, and Expat produced ICFlow for
+`runtests`; both associated ELF files were preserved under `artifacts/`.
 
-- `Mypintool/`: bundled Pin kit and ICFlow MyPinTool source, without a nested
-  `.git` directory.
-- `collect_dynamic.sh`: builds packages, runs tests through MyPinTool, and
-  organizes the results.
-- `wrap_with_mypintool.sh`: temporarily replaces test ELF files with
-  MyPinTool launch scripts.
-- `restore_wrapped_elfs.sh`: restores the original ELF files from their
-  `.orig` backups.
-- `.makepkg.conf`: copied from `arch_scripts`, with both duplicated `-O3`
-  assignments commented out for the baseline run.
-- `collect_arch_git.sh`: generates current Core and Extra package lists from the
-  Arch Linux package API.
-- `collect_arch.sh`: generates missing lists, then runs the dynamic collector
-  for Core, Extra, or both.
-- `Dockerfile`: creates a non-root Arch Linux build environment on a Linux
-  Docker host.
+## 6. Generate the complete Core and Extra lists
+
+The repository deliberately does not contain large, stale `core/` and `extra/`
+snapshots. Generate current lists from the Arch package API when needed:
+
+```bash
+./collect_arch_git.sh "$HOME/arch_packages"
+
+wc -l "$HOME/arch_packages/core/clone_urls.txt"
+wc -l "$HOME/arch_packages/extra/clone_urls.txt"
+```
+
+Then pass either list to the static or dynamic command. Start with the two
+sample packages because collecting all of Extra requires substantial time,
+network bandwidth, and disk space.
+
+## 7. Copy results or export the validated image
+
+From the Ubuntu host:
+
+```bash
+docker cp icflow:/home/icflow/icflow-static ./icflow-static
+docker cp icflow:/home/icflow/icflow-dynamic ./icflow-dynamic
+
+# Optional: preserve compiled LLVM and MyPinTool in a reusable image.
+docker commit icflow icflow-arch:validated
+docker save icflow-arch:validated | gzip > icflow-arch-validated.tar.gz
+```
+
+Another x86-64 Linux host can load it with:
+
+```bash
+gunzip -c icflow-arch-validated.tar.gz | docker load
+docker run -it --init --cap-add=SYS_PTRACE \
+  --security-opt seccomp=unconfined icflow-arch:validated
+```

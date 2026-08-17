@@ -2,8 +2,7 @@
 
 set -Eeuo pipefail
 
-SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-OUTPUT_ROOT=${1:-"$SCRIPT_DIR"}
+OUTPUT_ROOT=${1:-"$HOME/arch_packages"}
 PACKAGE_API=https://archlinux.org/packages/search/json/
 
 for command in awk curl jq mktemp realpath sort wc; do
@@ -25,7 +24,7 @@ fetch_repository() {
     local packages_temp="$TEMP_DIR/$output_name-packages.txt"
     local urls_temp="$TEMP_DIR/$output_name-clone_urls.txt"
     local page=1
-    local result_count page_count page_total response
+    local page_count page_total response
 
     : > "$packages_temp"
     echo "Fetching current $api_repository packages from archlinux.org..."
@@ -57,7 +56,6 @@ fetch_repository() {
             break
         fi
         page=$((page + 1))
-        sleep 1
     done
 
     sort -u "$packages_temp" -o "$packages_temp"
@@ -72,10 +70,8 @@ fetch_repository() {
     mv -- "$packages_temp" "$output_dir/packages.txt"
     mv -- "$urls_temp" "$output_dir/clone_urls.txt"
 
-    result_count=$(wc -l < "$output_dir/packages.txt")
-    page_count=$(wc -l < "$output_dir/clone_urls.txt")
-    echo "Generated $output_name/packages.txt: $result_count package records"
-    echo "Generated $output_name/clone_urls.txt: $page_count unique repositories"
+    echo "Generated $output_name/packages.txt: $(wc -l < "$output_dir/packages.txt") records"
+    echo "Generated $output_name/clone_urls.txt: $(wc -l < "$output_dir/clone_urls.txt") repositories"
 }
 
 fetch_repository Core core
