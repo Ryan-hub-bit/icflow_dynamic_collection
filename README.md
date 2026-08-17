@@ -1,16 +1,51 @@
 # Reproduce ICFlow Dynamic Collection
 
-This repository combines the required scripts and `.makepkg.conf` from
-[`arch_scripts`](https://github.com/Ryan-hub-bit/arch_scripts) with the Intel
-Pin kit and JSON-producing `MyPinTool`. The copied `.makepkg.conf` keeps
-`CFLAGS="-O3"` commented for the baseline run. Generated Core/Extra lists and
-build results are not stored in Git.
+Use either the prebuilt image or compile the toolchain yourself. Both choices
+run on an x86-64 Linux Docker host and use the non-root `icflow` user required
+by `makepkg`.
 
-The workflow below was designed for an x86-64 Linux host with Docker. Package
-builds run as the non-root `icflow` user because `makepkg` refuses to run as
-root.
+## Choice A: download the ready-to-run image
 
-## 1. Build and enter the Docker container
+Download the image and its checksum from the
+[`docker-v1` release](https://github.com/Ryan-hub-bit/icflow_dynamic_collection/releases/tag/docker-v1):
+
+```bash
+curl -LO https://github.com/Ryan-hub-bit/icflow_dynamic_collection/releases/download/docker-v1/icflow-dynamic-collection-amd64.tar.gz
+curl -LO https://github.com/Ryan-hub-bit/icflow_dynamic_collection/releases/download/docker-v1/icflow-dynamic-collection-amd64.tar.gz.sha256
+sha256sum -c icflow-dynamic-collection-amd64.tar.gz.sha256
+docker load < icflow-dynamic-collection-amd64.tar.gz
+
+docker volume create icflow-data
+docker run -it --init \
+  --name icflow \
+  --cap-add=SYS_PTRACE \
+  --security-opt seccomp=unconfined \
+  -v icflow-data:/data \
+  icflow-dynamic-collection:prebuilt
+```
+
+LLVM, MyPinTool, and their environment variables are already configured in
+this image. Generate current Core and Extra package lists immediately:
+
+```bash
+cd /workspace/icflow_dynamic_collection
+./collect_arch_git.sh
+
+wc -l "$HOME/arch_packages/core/clone_urls.txt"
+wc -l "$HOME/arch_packages/extra/clone_urls.txt"
+```
+
+To enter the same container later:
+
+```bash
+docker start -ai icflow
+# If it is already running:
+docker exec -it icflow bash
+```
+
+## Choice B: build the image and compile everything
+
+Clone the repository and build the Arch Linux environment:
 
 ```bash
 git clone https://github.com/Ryan-hub-bit/icflow_dynamic_collection.git
@@ -25,21 +60,13 @@ docker run -it --init \
   --name icflow \
   --cap-add=SYS_PTRACE \
   --security-opt seccomp=unconfined \
+  -v icflow-data:/data \
   icflow-arch
 ```
 
-After leaving the shell, enter the same container again with:
+Run the remaining commands inside the container.
 
-```bash
-docker start -ai icflow
-```
-
-If it is already running, use `docker exec -it icflow bash`. The image also
-contains `vim`, `jq`, the Arch build tools, CMake, and Ninja.
-
-## 2. Compile the custom LLVM inside Docker
-
-Run these commands inside the container:
+### Compile the custom LLVM
 
 ```bash
 git clone https://github.com/Ryan-hub-bit/llvm-project.git "$HOME/llvm-project"
@@ -51,20 +78,13 @@ cmake -S llvm -B build -G Ninja \
   -DLLVM_TARGETS_TO_BUILD=X86
 
 cmake --build build --target clang llvm-nm lld -- -j"$(nproc)"
+
+./build/bin/clang --version
+./build/bin/llvm-nm --version
+./build/bin/ld.lld --version
 ```
 
-Verify the toolchain:
-
-```bash
-"$HOME/llvm-project/build/bin/clang" --version
-"$HOME/llvm-project/build/bin/llvm-nm" --version
-"$HOME/llvm-project/build/bin/ld.lld" --version
-```
-
-## 3. Compile and smoke-test MyPinTool
-
-The small [`testlink.cpp`](testlink.cpp) program contains an indirect function
-call and provides a quick end-to-end Pin/JSON check.
+### Compile MyPinTool
 
 ```bash
 cd /workspace/icflow_dynamic_collection/Mypintool/source/tools/MyPinTool
@@ -76,6 +96,15 @@ export LLVM_BUILD="$HOME/llvm-project/build"
 export PIN_ROOT="$PWD/Mypintool"
 export PINTOOL="$PIN_ROOT/source/tools/MyPinTool/obj-intel64/MyPinTool.so"
 export MAKEPKG_CONF="$PWD/.makepkg.conf"
+```
+
+## Verify MyPinTool with `testlink`
+
+`testlink.cpp` contains an indirect function call and provides a quick
+end-to-end binary/JSON check:
+
+```bash
+cd /workspace/icflow_dynamic_collection
 
 "$LLVM_BUILD/bin/clang++" -O0 -g -fno-pie -no-pie \
   testlink.cpp -o testlink
@@ -84,111 +113,107 @@ rm -f testlink_icall.json testlink_ijump.json
 
 test -s testlink_icall.json
 jq . testlink_icall.json
+jq . testlink_ijump.json
 ```
 
-`testlink_icall.json` must contain at least one source address mapped to the
-indirectly called target. `testlink_ijump.json` may be empty because this small
-program is intended to test an indirect call.
+An empty `{}` is valid when that type of indirect control flow was not
+observed during the test.
 
-## 4. Build sample Arch packages and collect static binaries
+## Build the two verified sample packages
 
-`test-packages.txt` contains two verified official Arch package repositories:
+`test-packages.txt` contains
 [Zydis](https://gitlab.archlinux.org/archlinux/packaging/packages/zydis) and
-[Expat](https://gitlab.archlinux.org/archlinux/packaging/packages/expat). Run the copied and Docker-adapted
-`buildall_timeout.sh` on that list:
+[Expat](https://gitlab.archlinux.org/archlinux/packaging/packages/expat).
+
+Build their static binaries:
 
 ```bash
 cd /workspace/icflow_dynamic_collection
-export LLVM_BUILD="$HOME/llvm-project/build"
-export MAKEPKG_CONF="$PWD/.makepkg.conf"
 
-ARCH_PACKAGES_ROOT="$HOME/icflow-static" \
+ARCH_PACKAGES_ROOT=/data/icflow-static \
 MAX_JOBS=2 \
 BUILD_TIMEOUT=1800 \
 ./buildall_timeout.sh sample "$PWD/test-packages.txt"
 
-find "$HOME/icflow-static/elf_outputs" -type f -exec file {} + | grep ELF
-cat "$HOME/icflow-static/elf_map.txt"
+find /data/icflow-static/elf_outputs -type f -exec file {} + | grep ELF
+cat /data/icflow-static/elf_map.txt
 ```
 
-An `ELF` line and a corresponding entry in `elf_map.txt` confirm that the
-static package binary was built and copied successfully.
-
-## 5. Collect dynamic ICFlow ground truth
-
-Use a separate output directory so the static and dynamic results are easy to
-compare:
+Collect their dynamic ICFlow ground truth:
 
 ```bash
-cd /workspace/icflow_dynamic_collection
-export LLVM_BUILD="$HOME/llvm-project/build"
-export PIN_ROOT="$PWD/Mypintool"
-export PINTOOL="$PIN_ROOT/source/tools/MyPinTool/obj-intel64/MyPinTool.so"
-export MAKEPKG_CONF="$PWD/.makepkg.conf"
-
 BUILD_TIMEOUT=1800 TEST_TIMEOUT=1800 \
-WORK_ROOT="$HOME/icflow-work" \
-./collect_dynamic.sh "$PWD/test-packages.txt" "$HOME/icflow-dynamic"
+WORK_ROOT=/data/icflow-sample-work \
+./collect_dynamic.sh "$PWD/test-packages.txt" /data/icflow-dynamic
 ```
 
-Verify that package tests really launched through Pin and that a binary/ground
-truth pair exists:
+Verify the binary/ground-truth pairs:
 
 ```bash
-find "$HOME/icflow-dynamic" -name wrapped-executions.tsv -size +0 -print
-find "$HOME/icflow-dynamic" \
+find /data/icflow-dynamic -name wrapped-executions.tsv -size +0 -print
+find /data/icflow-dynamic \
   -type f \( -name '*_icall.json' -o -name '*_ijump.json' \) \
   -print0 | while IFS= read -r -d '' result; do
     jq -e 'length > 0' "$result" >/dev/null && echo "$result"
   done
 
-find "$HOME/icflow-dynamic" -path '*/artifacts/*' -type f -exec file {} + \
+find /data/icflow-dynamic -path '*/artifacts/*' -type f -exec file {} + \
   | grep ELF
 ```
 
-For every JSON result, the collector also copies its associated ELF into the
-same package's `artifacts/` tree. A non-empty `wrapped-executions.tsv` proves a
-package test executed an instrumented binary; non-empty `*_icall.json` or
-`*_ijump.json` files are the dynamic ICFlow ground truth.
+The validated run built both packages and copied five static ELF files. Zydis
+produced ICFlow for `ZydisInfo`; Expat produced ICFlow for `runtests`. Their
+associated ELF files and `*_icall.json`/`*_ijump.json` files were preserved
+under each package's `artifacts/` directory.
 
-This workflow was validated from a clean Docker build with custom LLVM/Clang
-20.0.0git. The static sample built 2/2 packages and copied five ELF files.
-Zydis produced ICFlow for `ZydisInfo`, and Expat produced ICFlow for `runtests`;
-both associated ELF files were preserved under `artifacts/`.
+## Generate and process complete Core or Extra lists
 
-## 6. Generate the complete Core and Extra lists
-
-The repository deliberately does not contain large, stale `core/` and `extra/`
-snapshots. Generate current lists from the Arch package API when needed:
+Generate current lists from the Arch package API:
 
 ```bash
-./collect_arch_git.sh "$HOME/arch_packages"
-
-wc -l "$HOME/arch_packages/core/clone_urls.txt"
-wc -l "$HOME/arch_packages/extra/clone_urls.txt"
+cd /workspace/icflow_dynamic_collection
+./collect_arch_git.sh
 ```
 
-Then pass either list to the static or dynamic command. Start with the two
-sample packages because collecting all of Extra requires substantial time,
-network bandwidth, and disk space.
-
-## 7. Copy results or export the validated image
-
-From the Ubuntu host:
+Build static binaries for Core or Extra:
 
 ```bash
-docker cp icflow:/home/icflow/icflow-static ./icflow-static
-docker cp icflow:/home/icflow/icflow-dynamic ./icflow-dynamic
+ARCH_PACKAGES_ROOT=/data/static-core \
+BUILD_TIMEOUT=1800 \
+./buildall_timeout.sh core "$HOME/arch_packages/core/clone_urls.txt"
 
-# Optional: preserve compiled LLVM and MyPinTool in a reusable image.
-docker commit icflow icflow-arch:validated
-docker save icflow-arch:validated | gzip > icflow-arch-validated.tar.gz
+ARCH_PACKAGES_ROOT=/data/static-extra \
+BUILD_TIMEOUT=1800 \
+./buildall_timeout.sh extra "$HOME/arch_packages/extra/clone_urls.txt"
 ```
 
-Another x86-64 Linux host can load it with:
+Collect dynamic ICFlow for Core or Extra:
 
 ```bash
-gunzip -c icflow-arch-validated.tar.gz | docker load
-docker run -it --init --cap-add=SYS_PTRACE \
-  --security-opt seccomp=unconfined icflow-arch:validated
+WORK_ROOT=/data/work-core \
+./collect_dynamic.sh \
+  "$HOME/arch_packages/core/clone_urls.txt" /data/dynamic-core
+
+WORK_ROOT=/data/work-extra \
+./collect_dynamic.sh \
+  "$HOME/arch_packages/extra/clone_urls.txt" /data/dynamic-extra
+```
+
+Core and especially Extra require substantial time, network bandwidth, and
+disk space. The scripts record processed URLs so interrupted collection can be
+resumed with the same command.
+
+## Copy results from the Docker volume
+
+Find the volume location on the host:
+
+```bash
+docker volume inspect icflow-data
+```
+
+Or copy a result directory directly from the container:
+
+```bash
+docker cp icflow:/data/icflow-static ./icflow-static
+docker cp icflow:/data/icflow-dynamic ./icflow-dynamic
 ```
