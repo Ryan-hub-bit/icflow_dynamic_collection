@@ -98,7 +98,12 @@ export PINTOOL="$PIN_ROOT/source/tools/MyPinTool/obj-intel64/MyPinTool.so"
 export MAKEPKG_CONF="$PWD/.makepkg.conf"
 ```
 
-## Verify MyPinTool with `testlink`
+## Functional test only: verify MyPinTool with `testlink`
+
+The `testlink`, Zydis, and Expat commands in the next two sections are small
+functional tests. They verify that the compiler, Pin instrumentation, static
+binary extraction, and dynamic JSON collection work. They do **not** generate
+the complete Core or Extra dataset.
 
 `testlink.cpp` contains an indirect function call and provides a quick
 end-to-end binary/JSON check:
@@ -119,7 +124,7 @@ jq . testlink_ijump.json
 An empty `{}` is valid when that type of indirect control flow was not
 observed during the test.
 
-## Build the two verified sample packages
+## Functional test only: build two sample packages
 
 `test-packages.txt` contains
 [Zydis](https://gitlab.archlinux.org/archlinux/packaging/packages/zydis) and
@@ -166,7 +171,17 @@ produced ICFlow for `ZydisInfo`; Expat produced ICFlow for `runtests`. Their
 associated ELF files and `*_icall.json`/`*_ijump.json` files were preserved
 under each package's `artifacts/` directory.
 
-## Generate and process complete Core or Extra lists
+## Full pipeline: generate and process complete Core or Extra lists
+
+This is the full dataset pipeline:
+
+1. Run `collect_arch_git.sh` to generate the complete current Core and Extra
+   repository lists.
+2. Run `buildall_timeout.sh` on a complete list to build and extract the static
+   ELF binaries.
+3. Run `collect_dynamic.sh` on the same list to execute package tests through
+   MyPinTool and collect the dynamic `*_icall.json` and `*_ijump.json` ground
+   truth.
 
 Generate current lists from the Arch package API:
 
