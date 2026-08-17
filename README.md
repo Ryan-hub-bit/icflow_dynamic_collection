@@ -139,7 +139,9 @@ truth pair exists:
 find "$HOME/icflow-dynamic" -name wrapped-executions.tsv -size +0 -print
 find "$HOME/icflow-dynamic" \
   -type f \( -name '*_icall.json' -o -name '*_ijump.json' \) \
-  -size +2c -print
+  -print0 | while IFS= read -r -d '' result; do
+    jq -e 'length > 0' "$result" >/dev/null && echo "$result"
+  done
 
 find "$HOME/icflow-dynamic" -path '*/artifacts/*' -type f -exec file {} + \
   | grep ELF
@@ -151,8 +153,9 @@ package test executed an instrumented binary; non-empty `*_icall.json` or
 `*_ijump.json` files are the dynamic ICFlow ground truth.
 
 This workflow was validated from a clean Docker build with custom LLVM/Clang
-20.0.0git. Zydis produced ICFlow for `ZydisInfo`, and Expat produced ICFlow for
-`runtests`; both associated ELF files were preserved under `artifacts/`.
+20.0.0git. The static sample built 2/2 packages and copied five ELF files.
+Zydis produced ICFlow for `ZydisInfo`, and Expat produced ICFlow for `runtests`;
+both associated ELF files were preserved under `artifacts/`.
 
 ## 6. Generate the complete Core and Extra lists
 
