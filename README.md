@@ -13,8 +13,7 @@ root.
 ## 1. Build and enter the Docker container
 
 ```bash
-git clone --branch codex/arch-scripts-docker-compat \
-  https://github.com/Ryan-hub-bit/icflow_dynamic_collection.git
+git clone https://github.com/Ryan-hub-bit/icflow_dynamic_collection.git
 cd icflow_dynamic_collection
 
 docker build \
