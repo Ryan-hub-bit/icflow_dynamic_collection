@@ -6,3 +6,6 @@
 /testlink
 /*_icall.json
 /*_ijump.json
+/llm-generated-tests/
+__pycache__/
+*.py[cod]

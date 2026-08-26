@@ -1,0 +1,2 @@
+# The native suite reaches only one target from dispatch().
+increment 42

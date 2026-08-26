@@ -1,0 +1,16 @@
+{
+  "summary": "Add deterministic inputs that exercise every operation reachable through dispatch().",
+  "detected_build_system": "Make",
+  "recommended_test_command": "make check TEST_CASE_FILE=tests/generated_cases.txt",
+  "files": [
+    {
+      "path": "tests/generated_cases.txt",
+      "purpose": "Reach the increment, decrement, and double_value targets from the same indirect call site in dispatch().",
+      "content": "increment 42\ndecrement 40\ndouble 82\n"
+    }
+  ],
+  "integration_notes": [
+    "Copy tests/generated_cases.txt into the project test directory.",
+    "Run make check with TEST_CASE_FILE=tests/generated_cases.txt under MyPinTool."
+  ]
+}

@@ -1,0 +1,25 @@
+ARG BASE_IMAGE=icflow-dynamic-collection:prebuilt
+FROM ${BASE_IMAGE}
+
+USER root
+
+COPY --chown=icflow:icflow . /workspace/icflow_dynamic_collection
+WORKDIR /workspace/icflow_dynamic_collection
+
+ENV LLVM_BUILD=/home/icflow/llvm-project/build \
+    PIN_ROOT=/workspace/icflow_dynamic_collection/Mypintool \
+    PINTOOL=/workspace/icflow_dynamic_collection/Mypintool/source/tools/MyPinTool/obj-intel64/MyPinTool.so \
+    MAKEPKG_CONF=/workspace/icflow_dynamic_collection/.makepkg.conf
+
+RUN test -x "$LLVM_BUILD/bin/clang" \
+    && test -x "$LLVM_BUILD/bin/ld.lld" \
+    && test -x "$PIN_ROOT/pin" \
+    && test -f "$PINTOOL" \
+    && python -m unittest discover -s /workspace/icflow_dynamic_collection/llm_test_generation/tests -v \
+    && bash -n /workspace/icflow_dynamic_collection/verify_llm_pipeline.sh \
+    && mkdir -p /data \
+    && chown icflow:icflow /data
+
+USER icflow
+
+CMD ["/bin/bash"]
