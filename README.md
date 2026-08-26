@@ -98,112 +98,187 @@ export PINTOOL="$PIN_ROOT/source/tools/MyPinTool/obj-intel64/MyPinTool.so"
 export MAKEPKG_CONF="$PWD/.makepkg.conf"
 ```
 
-## Experimental module: LLM-generated supplementary tests
+## LLM-generated tests: ordered indirect-call-pair workflow
 
-The paper's LLM augmentation is separate from the two-package functional test
-below. Its primary goal is to obtain as many unique dynamically observed
-indirect-call pairs as possible. A pair is the combination of an indirect call
-site and the callee target reached at runtime, as recorded in `*_icall.json`.
-The generated tests should add pairs that the project's native tests did not
-reach; line coverage and the number of generated tests are secondary metrics.
-The experimental `llm_test_generation` module selects a bounded source
-snapshot, asks an OpenAI model to propose supplementary tests, and writes the
-result to a separate directory. It never runs generated code or edits the input
-project.
+This is the paper-style augmentation workflow. Its primary result is the number
+of **new unique indirect-call pairs**, where one pair is an
+`(indirect call site, resolved callee target)` combination in `*_icall.json`.
+The goal is not simply to generate many tests or increase line coverage; it is
+to make the same indirect call sites reach as many previously unseen targets as
+possible.
 
-The current prebuilt `docker-v1` image predates this experimental branch. From
-inside either the prebuilt container or a source-built container, fetch it with:
+The module is functional, but generated code is untrusted and project-specific.
+It deliberately writes candidates to a separate directory and never executes
+or inserts them automatically. A researcher must review the files and connect
+them to the real project's build and `make check`/`ctest` command.
+
+The current `docker-v1` release predates this branch. In that container, fetch
+the module first:
 
 ```bash
 cd /workspace/icflow_dynamic_collection
 git fetch origin codex/llm-test-generation
-git switch -c codex/llm-test-generation FETCH_HEAD
+git switch --detach FETCH_HEAD
 ```
 
-### Use each researcher's own OpenAI API key
+New images built from this branch include the generator, prompt, comparison
+tool, demo project, and verification script. The Docker build itself runs the
+Python unit tests.
 
-Create an API key in the researcher's own OpenAI project. Enter it inside the
-container without putting it in the repository, Dockerfile, command history,
-or generated output:
+### Step 1: obtain and build one project
+
+Start with one medium-sized project whose native tests already pass. For an
+Arch package, clone its packaging repository and build it once so `makepkg`
+unpacks the actual source under `src/`:
+
+```bash
+git clone PACKAGE_GIT_URL /data/projects/package-name
+cd /data/projects/package-name
+makepkg --config /workspace/icflow_dynamic_collection/.makepkg.conf \
+  --syncdeps --noconfirm --needed --skippgpcheck --nocheck
+
+find "$PWD/src" -maxdepth 2 -type d
+```
+
+Use the unpacked upstream source directory, not only the directory containing
+`PKGBUILD`, as `PROJECT_SOURCE`:
+
+```bash
+export PROJECT_SOURCE=/data/projects/package-name/src/upstream-source
+```
+
+Record the exact native test command, for example `make check` or
+`ctest --test-dir build --output-on-failure`. Run it normally before involving
+the model. A failing native suite is not a valid baseline.
+
+### Step 2: collect the native-test baseline
+
+Run the native package through `collect_dynamic.sh`, or wrap the already-built
+test executables with `wrap_with_mypintool.sh` and run the native test command.
+Save the resulting `*_icall.json` files as the baseline. Do not rebuild between
+the baseline and generated-test measurements: the comparison uses instruction
+addresses and therefore requires the same non-PIE binaries.
+
+### Step 3: inspect the exact project prompt without an API call
+
+The reusable prompt is
+[`llm_test_generation/prompt_template.md`](llm_test_generation/prompt_template.md).
+It prioritizes diverse callback targets, function-pointer tables, virtual
+implementations, handlers, parser states, and cleanup paths while avoiding
+tests likely to repeat existing pairs.
+
+```bash
+cd /workspace/icflow_dynamic_collection
+python3 -m llm_test_generation.generate_tests "$PROJECT_SOURCE" \
+  --dry-run \
+  --existing-test-command "make check" \
+  --prompt-output /data/project-prompt.md
+```
+
+Review `/data/project-prompt.md` before submission. The selector excludes
+common build, dependency, VCS, and secret-file locations and applies size
+limits, but the researcher is responsible for confirming that every selected
+source file may be sent to the API.
+
+### Step 4: export the researcher's own OpenAI API key
+
+Create a key in the researcher's own OpenAI project. Enter it interactively so
+it is not stored in Git, the Dockerfile, or shell history:
 
 ```bash
 read -rsp "OpenAI API key: " OPENAI_API_KEY
 export OPENAI_API_KEY
 echo
-```
-
-The module reads `OPENAI_API_KEY` only from the process environment, never
-writes it to disk, and sends API requests with `store: false`. The default is
-`gpt-5.6-sol`; set `OPENAI_MODEL` or pass `--model` to use another model
-available to that account:
-
-```bash
 export OPENAI_MODEL=gpt-5.6-sol
 ```
 
-### Inspect the source selection and prompt first
+The module reads the key only from the environment, does not write it to disk,
+and sends the Responses API request with `store: false`. Each researcher pays
+for usage through the API project associated with their key.
 
-Run a dry-run before submitting project code. This performs no API request:
+### Step 5: generate candidate test files or test inputs
+
+```bash
+python3 -m llm_test_generation.generate_tests "$PROJECT_SOURCE" \
+  --output-dir /data/llm-generated-tests/package-name \
+  --test-count 12 \
+  --existing-test-command "make check" \
+  --extra-instructions \
+    "Maximize new indirect-call pairs. Prefer unseen callback targets, virtual implementations, parser handlers, and state transitions."
+```
+
+Add `--coverage-report BASELINE_SUMMARY.txt` when a baseline summary is
+available. The output contains candidate files, `generation.json`, and
+`generation_metadata.json`. It is not yet part of the project.
+
+### Step 6: review and integrate the candidates
+
+1. Read every generated file; reject unsafe, irrelevant, flaky, or incorrect
+   code.
+2. Copy only approved tests or inputs into the unpacked project.
+3. Add them to its existing test build without changing production behavior.
+4. Make its `check()` target, `make check`, or `ctest` command execute them.
+5. Run the native plus generated suite normally and fix integration errors
+   before using Pin.
+
+For reproducible Arch-wide collection, put those approved files and the
+`check()` integration in a packaging-repository fork or patch referenced by its
+`PKGBUILD`. Then give that repository URL to `collect_dynamic.sh`.
+
+### Step 7: run generated tests under MyPinTool through `make check`
+
+Use the same built executables as the baseline. Wrap them, execute the updated
+test command, and restore them afterward:
 
 ```bash
 cd /workspace/icflow_dynamic_collection
-python3 -m llm_test_generation.generate_tests /path/to/project \
-  --dry-run \
-  --prompt-output /data/project-llm-prompt.md
+PIN_ROOT="$PIN_ROOT" PINTOOL="$PINTOOL" \
+  WRAP_LOG=/data/generated-wrapped.tsv \
+  ./wrap_with_mypintool.sh "$PROJECT_SOURCE"
+
+make -C "$PROJECT_SOURCE" check
+./restore_wrapped_elfs.sh "$PROJECT_SOURCE"
 ```
 
-Review `/data/project-llm-prompt.md`. The selector excludes common build,
-dependency, VCS, and secret-file locations and enforces per-file and total
-context limits. This is a safety aid, not a guarantee that source files contain
-no sensitive information. Only submit code that the researcher is authorized
-to share with the API.
+Save this run's `*_icall.json` files separately. Some projects use `ctest` or a
+custom command instead of literal `make check`; use the command recorded in
+Step 1.
 
-### Generate supplementary tests
+### Step 8: count the new indirect-call pairs
 
-The reusable prompt is
-[`llm_test_generation/prompt_template.md`](llm_test_generation/prompt_template.md).
-It asks for deterministic tests that maximize unique indirect call-site/target
-pairs by varying callbacks, function-pointer targets, virtual implementations,
-handlers, parser states, error paths, and boundary conditions while reusing the
-project's native test framework. Tests likely to repeat the same pairs should
-be avoided.
-
-Example for a CMake project with an optional coverage report:
+Compare directories that have the same relative `*_icall.json` filenames:
 
 ```bash
-python3 -m llm_test_generation.generate_tests /path/to/project \
-  --output-dir /data/llm-generated-tests/project-name \
-  --test-count 12 \
-  --existing-test-command "ctest --test-dir build --output-on-failure" \
-  --coverage-report /path/to/coverage-summary.txt \
-  --extra-instructions \
-    "Maximize new indirect-call pairs. Prioritize unseen callback targets, virtual implementations, parser handlers, and state transitions."
+python3 -m llm_test_generation.compare_icall_pairs \
+  /data/baseline-icall /data/generated-icall \
+  --require-new 1 \
+  --json-output /data/icall-comparison.json
 ```
 
-If no coverage report is available, omit `--coverage-report`. The output
-directory contains the proposed test files, `generation.json`, and
-`generation_metadata.json`, including token usage when returned by the API.
-Existing non-empty output directories are rejected unless `--force` is given.
+The report gives baseline, candidate, new, and union pair counts. A generated
+suite is useful only when `new_pair_count` is positive and its tests remain
+correct and deterministic.
 
-Review every generated file before compiling or running it. To use approved
-tests for ICFlow collection:
+### Verify the complete offline path inside Docker
 
-1. Copy the approved files into the unpacked project's test tree.
-2. Add them to the project's test build and its `check()` command without
-   modifying unrelated production behavior.
-3. Confirm the native and generated tests pass normally.
-4. Run the native tests under MyPinTool to establish the baseline set of unique
-   indirect call-site/target pairs.
-5. Run the approved generated tests under MyPinTool and compare the union of
-   pairs against that baseline. The main result is the number of new unique
-   pairs in `*_icall.json`, not merely whether the JSON file is non-empty.
-6. Run `collect_dynamic.sh` on the package repository. During `makepkg check()`,
-   the collector wraps test ELF executables with MyPinTool and saves the
-   resulting binary plus `*_icall.json` and `*_ijump.json` artifacts.
+After LLVM and MyPinTool are available, run:
 
-Source files and coverage text selected by this module are sent to the OpenAI
-Responses API. Usage is billed to the API project associated with the key. See
-the official [Responses API reference](https://developers.openai.com/api/reference/cli/resources/responses/methods/create)
+```bash
+cd /workspace/icflow_dynamic_collection
+./verify_llm_pipeline.sh /data/llm-pipeline-verification
+cat /data/llm-pipeline-verification/comparison.json
+```
+
+This checked-in demonstration performs prompt rendering, structured-response
+materialization, compilation with the custom LLVM, MyPinTool wrapping, native
+`make check`, generated-input `make check`, and pair comparison. It uses a
+deterministic response fixture instead of an API key and must observe at least
+two new indirect-call pairs. It proves the local integration path; only a run
+with a researcher's key can verify that account's live API access and its
+model-generated project-specific tests.
+
+Source selected by Step 5 is sent to the OpenAI Responses API. See the official
+[Responses API reference](https://developers.openai.com/api/reference/cli/resources/responses/methods/create)
 and [model guide](https://developers.openai.com/api/docs/models).
 
 ## Functional test only: verify MyPinTool with `testlink`

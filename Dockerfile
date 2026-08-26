@@ -24,6 +24,8 @@ RUN groupadd --gid "$GROUP_ID" "$USER_NAME" \
     && chmod 0440 "/etc/sudoers.d/$USER_NAME-pacman"
 
 COPY . /workspace/icflow_dynamic_collection
+RUN python -m unittest discover -s /workspace/icflow_dynamic_collection/llm_test_generation/tests -v \
+    && bash -n /workspace/icflow_dynamic_collection/verify_llm_pipeline.sh
 RUN chown -R "$USER_ID:$GROUP_ID" /workspace/icflow_dynamic_collection
 
 WORKDIR /workspace/icflow_dynamic_collection

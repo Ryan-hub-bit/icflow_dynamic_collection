@@ -512,10 +512,19 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--timeout", type=positive_int, default=600)
     parser.add_argument("--retries", type=int, choices=range(0, 6), default=2)
-    parser.add_argument(
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
         "--dry-run",
         action="store_true",
         help="Do not call the API; print the selected-file manifest and prompt",
+    )
+    mode.add_argument(
+        "--response-file",
+        type=Path,
+        help=(
+            "Materialize a previously saved structured response instead of calling "
+            "the API (used by the offline Docker verification)"
+        ),
     )
     parser.add_argument(
         "--prompt-output",
@@ -579,23 +588,34 @@ def main(argv: list[str] | None = None) -> int:
             print("\n--- END PROMPT ---")
         return 0
 
-    api_key = os.environ.get("OPENAI_API_KEY", "").strip()
-    if not api_key:
-        raise RuntimeError(
-            "OPENAI_API_KEY is not set. Each user must export their own key; "
-            "the key is never stored by this module."
-        )
+    if args.response_file:
+        generated = json.loads(args.response_file.read_text(encoding="utf-8"))
+        raw_response: dict[str, Any] = {
+            "id": None,
+            "model": None,
+            "status": "offline_fixture",
+            "usage": None,
+        }
+        generation_source = "response-file"
+    else:
+        api_key = os.environ.get("OPENAI_API_KEY", "").strip()
+        if not api_key:
+            raise RuntimeError(
+                "OPENAI_API_KEY is not set. Each user must export their own key; "
+                "the key is never stored by this module."
+            )
 
-    generated, raw_response = call_responses_api(
-        api_key=api_key,
-        api_base=args.api_base,
-        model=args.model,
-        prompt=prompt,
-        reasoning_effort=args.reasoning_effort,
-        max_output_tokens=args.max_output_tokens,
-        timeout=args.timeout,
-        retries=args.retries,
-    )
+        generated, raw_response = call_responses_api(
+            api_key=api_key,
+            api_base=args.api_base,
+            model=args.model,
+            prompt=prompt,
+            reasoning_effort=args.reasoning_effort,
+            max_output_tokens=args.max_output_tokens,
+            timeout=args.timeout,
+            retries=args.retries,
+        )
+        generation_source = "openai-responses-api"
     written = materialize_suite(args.output_dir, generated, args.force)
     output_root = args.output_dir.resolve(strict=False)
     (output_root / "generation.json").write_text(
@@ -604,6 +624,7 @@ def main(argv: list[str] | None = None) -> int:
         newline="\n",
     )
     response_metadata = {
+        "source": generation_source,
         "id": raw_response.get("id"),
         "model": raw_response.get("model"),
         "status": raw_response.get("status"),

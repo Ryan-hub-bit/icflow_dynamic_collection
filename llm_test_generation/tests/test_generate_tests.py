@@ -4,10 +4,12 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from llm_test_generation.generate_tests import (
     SelectedFile,
     build_prompt,
+    main,
     materialize_suite,
     response_output_text,
     safe_generated_path,
@@ -97,6 +99,54 @@ class PromptTests(unittest.TestCase):
             self.assertIn("maximize the number of unique\nindirect-call pairs", prompt)
             self.assertIn("(indirect call site, resolved callee target)", prompt)
             self.assertIn("raw test count and line coverage are not the main", prompt)
+
+    def test_response_file_materializes_without_api_key(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            project = root / "project"
+            output = root / "generated"
+            response_file = root / "response.json"
+            project.mkdir()
+            (project / "example.c").write_text("int example(void) { return 1; }\n")
+            response_file.write_text(
+                json.dumps(
+                    {
+                        "summary": "One generated input",
+                        "detected_build_system": "Make",
+                        "recommended_test_command": "make check",
+                        "files": [
+                            {
+                                "path": "tests/generated.txt",
+                                "purpose": "Reach a second function-pointer target",
+                                "content": "second-target\n",
+                            }
+                        ],
+                        "integration_notes": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with mock.patch.dict("os.environ", {}, clear=True):
+                result = main(
+                    [
+                        str(project),
+                        "--output-dir",
+                        str(output),
+                        "--response-file",
+                        str(response_file),
+                    ]
+                )
+
+            self.assertEqual(result, 0)
+            self.assertEqual(
+                (output / "tests" / "generated.txt").read_text(encoding="utf-8"),
+                "second-target\n",
+            )
+            metadata = json.loads(
+                (output / "generation_metadata.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(metadata["source"], "response-file")
 
 
 class MaterializationTests(unittest.TestCase):
