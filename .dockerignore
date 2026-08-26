@@ -13,4 +13,5 @@
 !buildall_timeout.sh
 !test-packages.txt
 !testlink.cpp
+!llm_test_generation/**
 !Mypintool/**

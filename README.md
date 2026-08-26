@@ -98,6 +98,103 @@ export PINTOOL="$PIN_ROOT/source/tools/MyPinTool/obj-intel64/MyPinTool.so"
 export MAKEPKG_CONF="$PWD/.makepkg.conf"
 ```
 
+## Experimental module: LLM-generated supplementary tests
+
+The paper's LLM augmentation is separate from the two-package functional test
+below. It targets selected, medium-sized projects whose native test suites do
+not exercise enough execution paths. The experimental
+`llm_test_generation` module selects a bounded source snapshot, asks an OpenAI
+model to propose supplementary tests, and writes the result to a separate
+directory. It never runs generated code or edits the input project.
+
+The current prebuilt `docker-v1` image predates this experimental branch. From
+inside either the prebuilt container or a source-built container, fetch it with:
+
+```bash
+cd /workspace/icflow_dynamic_collection
+git fetch origin codex/llm-test-generation
+git switch -c codex/llm-test-generation FETCH_HEAD
+```
+
+### Use each researcher's own OpenAI API key
+
+Create an API key in the researcher's own OpenAI project. Enter it inside the
+container without putting it in the repository, Dockerfile, command history,
+or generated output:
+
+```bash
+read -rsp "OpenAI API key: " OPENAI_API_KEY
+export OPENAI_API_KEY
+echo
+```
+
+The module reads `OPENAI_API_KEY` only from the process environment, never
+writes it to disk, and sends API requests with `store: false`. The default is
+`gpt-5.6-sol`; set `OPENAI_MODEL` or pass `--model` to use another model
+available to that account:
+
+```bash
+export OPENAI_MODEL=gpt-5.6-sol
+```
+
+### Inspect the source selection and prompt first
+
+Run a dry-run before submitting project code. This performs no API request:
+
+```bash
+cd /workspace/icflow_dynamic_collection
+python3 -m llm_test_generation.generate_tests /path/to/project \
+  --dry-run \
+  --prompt-output /data/project-llm-prompt.md
+```
+
+Review `/data/project-llm-prompt.md`. The selector excludes common build,
+dependency, VCS, and secret-file locations and enforces per-file and total
+context limits. This is a safety aid, not a guarantee that source files contain
+no sensitive information. Only submit code that the researcher is authorized
+to share with the API.
+
+### Generate supplementary tests
+
+The reusable prompt is
+[`llm_test_generation/prompt_template.md`](llm_test_generation/prompt_template.md).
+It asks for deterministic tests that target callbacks, function pointers,
+virtual dispatch, switch dispatch, parser states, error paths, and boundary
+conditions while reusing the project's native test framework.
+
+Example for a CMake project with an optional coverage report:
+
+```bash
+python3 -m llm_test_generation.generate_tests /path/to/project \
+  --output-dir /data/llm-generated-tests/project-name \
+  --test-count 12 \
+  --existing-test-command "ctest --test-dir build --output-on-failure" \
+  --coverage-report /path/to/coverage-summary.txt \
+  --extra-instructions \
+    "Prioritize untested callback registration, parser errors, and state transitions."
+```
+
+If no coverage report is available, omit `--coverage-report`. The output
+directory contains the proposed test files, `generation.json`, and
+`generation_metadata.json`, including token usage when returned by the API.
+Existing non-empty output directories are rejected unless `--force` is given.
+
+Review every generated file before compiling or running it. To use approved
+tests for ICFlow collection:
+
+1. Copy the approved files into the unpacked project's test tree.
+2. Add them to the project's test build and its `check()` command without
+   modifying unrelated production behavior.
+3. Confirm the native and generated tests pass normally.
+4. Run `collect_dynamic.sh` on the package repository. During `makepkg check()`,
+   the collector wraps test ELF executables with MyPinTool and saves the
+   resulting binary plus `*_icall.json` and `*_ijump.json` artifacts.
+
+Source files and coverage text selected by this module are sent to the OpenAI
+Responses API. Usage is billed to the API project associated with the key. See
+the official [Responses API reference](https://developers.openai.com/api/reference/cli/resources/responses/methods/create)
+and [model guide](https://developers.openai.com/api/docs/models).
+
 ## Functional test only: verify MyPinTool with `testlink`
 
 The `testlink`, Zydis, and Expat commands in the next two sections are small
@@ -116,7 +213,7 @@ cd /workspace/icflow_dynamic_collection
 rm -f testlink_icall.json testlink_ijump.json
 "$PIN_ROOT/pin" -t "$PINTOOL" -- "$PWD/testlink"
 
-test -s testlink_icall.json
+jq -e 'type == "object" and length > 0' testlink_icall.json
 jq . testlink_icall.json
 jq . testlink_ijump.json
 ```
