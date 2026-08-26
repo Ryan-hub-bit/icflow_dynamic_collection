@@ -15,17 +15,27 @@ curl -LO https://github.com/Ryan-hub-bit/icflow_dynamic_collection/releases/down
 sha256sum -c icflow-dynamic-collection-amd64.tar.gz.sha256
 docker load < icflow-dynamic-collection-amd64.tar.gz
 
+git clone --branch codex/llm-test-generation \
+  https://github.com/Ryan-hub-bit/icflow_dynamic_collection.git
+cd icflow_dynamic_collection
+docker build -f Dockerfile.prebuilt \
+  --build-arg BASE_IMAGE=icflow-dynamic-collection:prebuilt \
+  -t icflow-dynamic-collection:llm .
+
 docker volume create icflow-data
 docker run -it --init \
   --name icflow \
   --cap-add=SYS_PTRACE \
   --security-opt seccomp=unconfined \
   -v icflow-data:/data \
-  icflow-dynamic-collection:prebuilt
+  icflow-dynamic-collection:llm
 ```
 
-LLVM, MyPinTool, and their environment variables are already configured in
-this image. Generate current Core and Extra package lists immediately:
+`Dockerfile.prebuilt` layers this repository revision onto the compiled release
+image and fails its build if LLVM, lld, Pin, MyPinTool, or the Python unit tests
+are unavailable. LLVM, MyPinTool, and their environment variables are therefore
+ready in the resulting `:llm` image. Generate current Core and Extra package
+lists immediately:
 
 ```bash
 cd /workspace/icflow_dynamic_collection
@@ -48,7 +58,8 @@ docker exec -it icflow bash
 Clone the repository and build the Arch Linux environment:
 
 ```bash
-git clone https://github.com/Ryan-hub-bit/icflow_dynamic_collection.git
+git clone --branch codex/llm-test-generation \
+  https://github.com/Ryan-hub-bit/icflow_dynamic_collection.git
 cd icflow_dynamic_collection
 
 docker build \
@@ -112,8 +123,10 @@ It deliberately writes candidates to a separate directory and never executes
 or inserts them automatically. A researcher must review the files and connect
 them to the real project's build and `make check`/`ctest` command.
 
-The current `docker-v1` release predates this branch. In that container, fetch
-the module first:
+The raw `docker-v1` release predates this branch, but the
+`Dockerfile.prebuilt` command in Choice A already adds the module. Only when
+running the raw release image without that overlay, fetch the module inside the
+container first:
 
 ```bash
 cd /workspace/icflow_dynamic_collection

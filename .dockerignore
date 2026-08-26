@@ -2,6 +2,7 @@
 !.dockerignore
 !.gitattributes
 !Dockerfile
+!Dockerfile.prebuilt
 !.gitignore
 !README.md
 !.makepkg.conf
