@@ -4,6 +4,7 @@ FROM ${BASE_IMAGE}
 USER root
 
 COPY --chown=icflow:icflow . /workspace/icflow_dynamic_collection
+WORKDIR /workspace/icflow_dynamic_collection
 
 ENV LLVM_BUILD=/home/icflow/llvm-project/build \
     PIN_ROOT=/workspace/icflow_dynamic_collection/Mypintool \
@@ -19,7 +20,6 @@ RUN test -x "$LLVM_BUILD/bin/clang" \
     && mkdir -p /data \
     && chown icflow:icflow /data
 
-WORKDIR /workspace/icflow_dynamic_collection
 USER icflow
 
 CMD ["/bin/bash"]
