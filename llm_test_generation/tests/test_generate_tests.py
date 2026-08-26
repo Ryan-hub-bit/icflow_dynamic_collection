@@ -6,6 +6,8 @@ import unittest
 from pathlib import Path
 
 from llm_test_generation.generate_tests import (
+    SelectedFile,
+    build_prompt,
     materialize_suite,
     response_output_text,
     safe_generated_path,
@@ -77,6 +79,24 @@ class ResponseTests(unittest.TestCase):
             ]
         }
         self.assertEqual(json.loads(response_output_text(response)), payload)
+
+
+class PromptTests(unittest.TestCase):
+    def test_prompt_prioritizes_unique_indirect_call_pairs(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            prompt = build_prompt(
+                root,
+                [SelectedFile("src/example.c", "void example(void) {}", 21, 20)],
+                test_count=4,
+                existing_test_command="ctest",
+                extra_instructions="",
+                coverage_report="Not supplied.",
+            )
+
+            self.assertIn("maximize the number of unique\nindirect-call pairs", prompt)
+            self.assertIn("(indirect call site, resolved callee target)", prompt)
+            self.assertIn("raw test count and line coverage are not the main", prompt)
 
 
 class MaterializationTests(unittest.TestCase):

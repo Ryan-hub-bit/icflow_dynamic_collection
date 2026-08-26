@@ -101,11 +101,15 @@ export MAKEPKG_CONF="$PWD/.makepkg.conf"
 ## Experimental module: LLM-generated supplementary tests
 
 The paper's LLM augmentation is separate from the two-package functional test
-below. It targets selected, medium-sized projects whose native test suites do
-not exercise enough execution paths. The experimental
-`llm_test_generation` module selects a bounded source snapshot, asks an OpenAI
-model to propose supplementary tests, and writes the result to a separate
-directory. It never runs generated code or edits the input project.
+below. Its primary goal is to obtain as many unique dynamically observed
+indirect-call pairs as possible. A pair is the combination of an indirect call
+site and the callee target reached at runtime, as recorded in `*_icall.json`.
+The generated tests should add pairs that the project's native tests did not
+reach; line coverage and the number of generated tests are secondary metrics.
+The experimental `llm_test_generation` module selects a bounded source
+snapshot, asks an OpenAI model to propose supplementary tests, and writes the
+result to a separate directory. It never runs generated code or edits the input
+project.
 
 The current prebuilt `docker-v1` image predates this experimental branch. From
 inside either the prebuilt container or a source-built container, fetch it with:
@@ -158,9 +162,11 @@ to share with the API.
 
 The reusable prompt is
 [`llm_test_generation/prompt_template.md`](llm_test_generation/prompt_template.md).
-It asks for deterministic tests that target callbacks, function pointers,
-virtual dispatch, switch dispatch, parser states, error paths, and boundary
-conditions while reusing the project's native test framework.
+It asks for deterministic tests that maximize unique indirect call-site/target
+pairs by varying callbacks, function-pointer targets, virtual implementations,
+handlers, parser states, error paths, and boundary conditions while reusing the
+project's native test framework. Tests likely to repeat the same pairs should
+be avoided.
 
 Example for a CMake project with an optional coverage report:
 
@@ -171,7 +177,7 @@ python3 -m llm_test_generation.generate_tests /path/to/project \
   --existing-test-command "ctest --test-dir build --output-on-failure" \
   --coverage-report /path/to/coverage-summary.txt \
   --extra-instructions \
-    "Prioritize untested callback registration, parser errors, and state transitions."
+    "Maximize new indirect-call pairs. Prioritize unseen callback targets, virtual implementations, parser handlers, and state transitions."
 ```
 
 If no coverage report is available, omit `--coverage-report`. The output
@@ -186,7 +192,12 @@ tests for ICFlow collection:
 2. Add them to the project's test build and its `check()` command without
    modifying unrelated production behavior.
 3. Confirm the native and generated tests pass normally.
-4. Run `collect_dynamic.sh` on the package repository. During `makepkg check()`,
+4. Run the native tests under MyPinTool to establish the baseline set of unique
+   indirect call-site/target pairs.
+5. Run the approved generated tests under MyPinTool and compare the union of
+   pairs against that baseline. The main result is the number of new unique
+   pairs in `*_icall.json`, not merely whether the JSON file is non-empty.
+6. Run `collect_dynamic.sh` on the package repository. During `makepkg check()`,
    the collector wraps test ELF executables with MyPinTool and saves the
    resulting binary plus `*_icall.json` and `*_ijump.json` artifacts.
 
