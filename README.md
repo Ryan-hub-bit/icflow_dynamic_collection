@@ -290,6 +290,18 @@ two new indirect-call pairs. It proves the local integration path; only a run
 with a researcher's key can verify that account's live API access and its
 model-generated project-specific tests.
 
+Verified fixture result on an x86-64 Ubuntu Docker host (August 26, 2026):
+
+- Both `Dockerfile` and `Dockerfile.prebuilt` built successfully.
+- The ready image found the custom LLVM/Clang 20 build, lld, Pin, and MyPinTool.
+- All 12 Python tests passed during the image build.
+- Native `make check` observed 1 indirect-call pair.
+- Generated-input `make check` observed 3 pairs, including 2 new pairs from the
+  same call site; the verification container exited with status 0.
+
+This is a deterministic integration test, not a claim that an unreviewed live
+model response will compile or improve every external project.
+
 Source selected by Step 5 is sent to the OpenAI Responses API. See the official
 [Responses API reference](https://developers.openai.com/api/reference/cli/resources/responses/methods/create)
 and [model guide](https://developers.openai.com/api/docs/models).
