@@ -40,9 +40,25 @@ jobs:
 
       - name: Build the combined E1 image
         run: |
-          docker build --progress=plain -f Dockerfile.e1 -t "$LOCAL_IMAGE" .
+          set -o pipefail
+          build_log="$RUNNER_TEMP/e1-docker-build.log"
+          if ! docker build --progress=plain -f Dockerfile.e1 -t "$LOCAL_IMAGE" . \
+            2>&1 | tee "$build_log"; then
+            diagnostic=$(tail -n 80 "$build_log" | \
+              sed -e 's/%/%25/g' -e 's/\r/%0D/g' | \
+              awk 'BEGIN { ORS="%0A" } { print }')
+            echo "::error file=Dockerfile.e1::$diagnostic"
+            exit 1
+          fi
           docker image inspect "$LOCAL_IMAGE"
           df -h
+
+      - name: Upload a failed image-build log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e1-image-build-log-${{ github.sha }}
+          path: ${{ runner.temp }}/e1-docker-build.log
 
       - name: Run the complete E1 verification
         run: |
