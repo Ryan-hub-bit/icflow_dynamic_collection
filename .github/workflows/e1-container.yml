@@ -62,18 +62,29 @@ jobs:
 
       - name: Run the complete E1 verification
         run: |
-          docker volume create icflownet-e1-output
+          set -o pipefail
+          runtime_log="$RUNNER_TEMP/e1-runtime.log"
+          set +e
           docker run --name icflownet-e1-verification --init \
             --cap-add=SYS_PTRACE \
             --security-opt seccomp=unconfined \
-            -v icflownet-e1-output:/output \
             "$LOCAL_IMAGE" \
             /opt/icflownet-e1/run_e1.sh \
               --sample testlink \
-              --output /output/testlink
+              --output /output/testlink \
+            2>&1 | tee "$runtime_log"
+          runtime_status=${PIPESTATUS[0]}
+          set -e
           docker cp \
             icflownet-e1-verification:/output/testlink \
-            "$RUNNER_TEMP/e1-verification"
+            "$RUNNER_TEMP/e1-verification" || true
+          if [[ $runtime_status -ne 0 ]]; then
+            diagnostic=$(tail -n 80 "$runtime_log" | \
+              sed -e 's/%/%25/g' -e 's/\r/%0D/g' | \
+              awk 'BEGIN { ORS="%0A" } { print }')
+            echo "::error file=e1/run_e1.sh::$diagnostic"
+            exit "$runtime_status"
+          fi
 
       - name: Upload the verification report
         uses: actions/upload-artifact@v4
