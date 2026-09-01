@@ -1,0 +1,84 @@
+name: E1 combined Docker image
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - codex/e1-combined-graph-env
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  BASE_ARCHIVE: icflow-dynamic-collection-amd64.tar.gz
+  BASE_URL: https://github.com/Ryan-hub-bit/icflow_dynamic_collection/releases/download/docker-v1/icflow-dynamic-collection-amd64.tar.gz
+  BASE_CHECKSUM_URL: https://github.com/Ryan-hub-bit/icflow_dynamic_collection/releases/download/docker-v1/icflow-dynamic-collection-amd64.tar.gz.sha256
+  LOCAL_IMAGE: icflownet-e1:ci
+
+jobs:
+  build-test-push:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Free runner disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc
+          docker system prune --all --force
+          df -h
+
+      - name: Download and verify the prebuilt base image
+        run: |
+          curl -fL --retry 3 -o "$BASE_ARCHIVE" "$BASE_URL"
+          curl -fL --retry 3 -o "$BASE_ARCHIVE.sha256" "$BASE_CHECKSUM_URL"
+          sha256sum -c "$BASE_ARCHIVE.sha256"
+          docker load < "$BASE_ARCHIVE"
+
+      - name: Build the combined E1 image
+        run: |
+          docker build --progress=plain -f Dockerfile.e1 -t "$LOCAL_IMAGE" .
+          docker image inspect "$LOCAL_IMAGE"
+          df -h
+
+      - name: Run the complete E1 verification
+        run: |
+          docker volume create icflownet-e1-output
+          docker run --name icflownet-e1-verification --init \
+            --cap-add=SYS_PTRACE \
+            --security-opt seccomp=unconfined \
+            -v icflownet-e1-output:/output \
+            "$LOCAL_IMAGE" \
+            /opt/icflownet-e1/run_e1.sh \
+              --sample testlink \
+              --output /output/testlink
+          docker cp \
+            icflownet-e1-verification:/output/testlink \
+            "$RUNNER_TEMP/e1-verification"
+
+      - name: Upload the verification report
+        uses: actions/upload-artifact@v4
+        with:
+          name: e1-verification-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/e1-verification/verification.json
+            ${{ runner.temp }}/e1-verification/versions.txt
+            ${{ runner.temp }}/e1-verification/run.log
+
+      - name: Log in to GitHub Container Registry
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | \
+            docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Push the tested image
+        run: |
+          owner=$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')
+          image="ghcr.io/${owner}/icflow-dynamic-collection"
+          short_sha=${GITHUB_SHA:0:12}
+          docker tag "$LOCAL_IMAGE" "$image:e1-${short_sha}"
+          docker tag "$LOCAL_IMAGE" "$image:e1"
+          docker push "$image:e1-${short_sha}"
+          docker push "$image:e1"

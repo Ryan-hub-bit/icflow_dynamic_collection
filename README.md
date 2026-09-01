@@ -4,6 +4,12 @@ Use either the prebuilt image or compile the toolchain yourself. Both choices
 run on an x86-64 Linux Docker host and use the non-root `icflow` user required
 by `makepkg`.
 
+## ICFlowNet C1 smoke experiment
+
+For the Docker-only static GT, dynamic GT, and stripped-binary heterogeneous
+ACFG smoke experiment, see [`E1.md`](E1.md). That workflow uses the existing
+`testlink.cpp` sample and does not use the LLM test-generation module.
+
 ## Choice A: download the ready-to-run image
 
 Download the image and its checksum from the
