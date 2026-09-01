@@ -42,12 +42,14 @@ RUN chmod 0755 /opt/icflownet-e1/run_e1.sh /opt/icflownet-e1/verify_e1.py \
     && test -x "$PIN_ROOT/pin" \
     && test -f "$PINTOOL" \
     && test -f "$ICFLOWNET_ROOT/src/groundtruth/static/palmtree/vocab" \
-    && test -f "$ICFLOWNET_ROOT/src/groundtruth/static/palmtree/transformer.ep19" \
-    && bash -n /opt/icflownet-e1/run_e1.sh \
+    && test -f "$ICFLOWNET_ROOT/src/groundtruth/static/palmtree/transformer.ep19"
+
+USER icflow
+
+RUN bash -n /opt/icflownet-e1/run_e1.sh \
     && PALMTREE_USE_CUDA=0 "$GRAPH_PYTHON" -c \
       'import angr, dgl, torch; print(angr.__version__, dgl.__version__, torch.__version__)'
 
-USER icflow
 WORKDIR /workspace/icflow_dynamic_collection
 
 CMD ["/opt/icflownet-e1/run_e1.sh", "--help"]
