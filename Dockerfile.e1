@@ -23,7 +23,8 @@ RUN pacman -Sy --noconfirm --needed rust \
     && "$CONDA_DIR/bin/conda" clean --all --yes \
     && pacman -Rns --noconfirm rust \
     && pacman -Scc --noconfirm \
-    && rm -rf /root/.cache/pip /root/.cargo /tmp/miniconda.sh
+    && rm -rf /root/.cache/pip /root/.cargo /tmp/miniconda.sh \
+    && rm -f /tmp/pyvex_ffi_parser_cache.*
 
 COPY --chown=icflow:icflow e1/icflownet /workspace/icflownet
 COPY --chown=icflow:icflow e1/run_e1.sh e1/verify_e1.py /opt/icflownet-e1/
