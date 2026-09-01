@@ -12,7 +12,8 @@ ENV CONDA_DIR=/opt/conda \
 
 COPY graphenv.yml /opt/icflownet-e1/graphenv.yml
 
-RUN curl -fsSL --retry 3 \
+RUN pacman -Sy --noconfirm --needed rust \
+    && curl -fsSL --retry 3 \
       "https://repo.anaconda.com/miniconda/${MINICONDA_INSTALLER}" \
       -o /tmp/miniconda.sh \
     && echo "${MINICONDA_SHA256}  /tmp/miniconda.sh" | sha256sum -c - \
@@ -20,7 +21,9 @@ RUN curl -fsSL --retry 3 \
     && "$CONDA_DIR/bin/conda" env create \
       --file /opt/icflownet-e1/graphenv.yml \
     && "$CONDA_DIR/bin/conda" clean --all --yes \
-    && rm -rf /root/.cache/pip /tmp/miniconda.sh
+    && pacman -Rns --noconfirm rust \
+    && pacman -Scc --noconfirm \
+    && rm -rf /root/.cache/pip /root/.cargo /tmp/miniconda.sh
 
 COPY --chown=icflow:icflow e1/icflownet /workspace/icflownet
 COPY --chown=icflow:icflow e1/run_e1.sh e1/verify_e1.py /opt/icflownet-e1/
