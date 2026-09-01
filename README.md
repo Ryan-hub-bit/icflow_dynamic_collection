@@ -7,8 +7,9 @@ by `makepkg`.
 ## ICFlowNet C1 smoke experiment
 
 For the Docker-only static GT, dynamic GT, and stripped-binary heterogeneous
-ACFG smoke experiment, see [`E1.md`](E1.md). That workflow uses the existing
-`testlink.cpp` sample and does not use the LLM test-generation module.
+ACFG smoke experiment, see [`E1.md`](E1.md). That workflow builds the pinned
+Arch Linux Zydis PKGBUILD and does not use `testlink.cpp` or the LLM
+test-generation module.
 
 ## Choice A: download the ready-to-run image
 

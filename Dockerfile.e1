@@ -28,6 +28,12 @@ RUN pacman -Sy --noconfirm --needed rust \
 
 COPY --chown=icflow:icflow e1/icflownet /workspace/icflownet
 COPY --chown=icflow:icflow e1/run_e1.sh e1/verify_e1.py /opt/icflownet-e1/
+COPY --chown=icflow:icflow \
+    collect_dynamic.sh \
+    wrap_with_mypintool.sh \
+    restore_wrapped_elfs.sh \
+    .makepkg.conf \
+    /opt/icflownet-e1/dynamic/
 
 ENV ICFLOWNET_ROOT=/workspace/icflownet \
     GRAPH_PYTHON=/opt/conda/envs/graph/bin/python \
@@ -35,6 +41,9 @@ ENV ICFLOWNET_ROOT=/workspace/icflownet \
     PATH=/opt/conda/envs/graph/bin:/opt/conda/bin:${PATH}
 
 RUN chmod 0755 /opt/icflownet-e1/run_e1.sh /opt/icflownet-e1/verify_e1.py \
+    /opt/icflownet-e1/dynamic/collect_dynamic.sh \
+    /opt/icflownet-e1/dynamic/wrap_with_mypintool.sh \
+    /opt/icflownet-e1/dynamic/restore_wrapped_elfs.sh \
     && mkdir -p /output \
     && chown icflow:icflow /output \
     && test -x "$LLVM_BUILD/bin/clang++" \
